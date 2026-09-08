@@ -1190,12 +1190,10 @@ function onPlayerStateChange(event) {
                 if (lyricsBtn) lyricsBtn.click();
             } else if (e.key.toLowerCase() === 'q') {
                 e.preventDefault();
-                const queuePanel = document.getElementById('queue-panel');
-                const queueNavBtn = document.getElementById('floating-queue-btn');
-                const closeQueueBtn = document.getElementById('close-queue-btn');
-                if (queuePanel && queuePanel.classList.contains('active')) {
-                    if (closeQueueBtn) closeQueueBtn.click();
+                if (typeof toggleQueue === 'function') {
+                    toggleQueue();
                 } else {
+                    const queueNavBtn = document.getElementById('floating-queue-btn');
                     if (queueNavBtn) queueNavBtn.click();
                 }
             }
@@ -1937,6 +1935,9 @@ function onPlayerStateChange(event) {
                 miniPlayer.classList.remove('hidden-mini');
             }
             showScreenExcept('home-screen');
+            if (typeof refreshHomePersonalization === 'function') {
+                refreshHomePersonalization();
+            }
         }
 
         function showPlayer() {
@@ -1959,19 +1960,80 @@ function onPlayerStateChange(event) {
             syncSettingsUI(appSettings);
         }
 
-        // --- HISTORY LOGIC ---
+        // --- HISTORY & HOME PERSONALIZATION LOGIC ---
+        function getHistoryList() {
+            try {
+                const historyStr = localStorage.getItem('music_history_full') || '[]';
+                const list = JSON.parse(historyStr);
+                let modified = false;
+                const normalized = (list || []).map(item => {
+                    if (!item) return null;
+                    const vid = item.videoId || item.id || '';
+                    const artist = item.artist || item.uploader || '';
+                    if (!item.videoId && vid) {
+                        item.videoId = vid;
+                        modified = true;
+                    }
+                    if (!item.artist && artist) {
+                        item.artist = artist;
+                        modified = true;
+                    }
+                    return item;
+                }).filter(Boolean);
+                if (modified) {
+                    localStorage.setItem('music_history_full', JSON.stringify(normalized));
+                }
+                return normalized;
+            } catch(e) {
+                return [];
+            }
+        }
+        window.getHistoryList = getHistoryList;
+
+        function refreshHomePersonalization() {
+            try {
+                const historyList = getHistoryList();
+                const jumpSection = document.getElementById('jump-back-in-section');
+                if (historyList && historyList.length > 0) {
+                    if (jumpSection) jumpSection.style.display = 'block';
+                    const uniqueHistory = [];
+                    const seen = new Set();
+                    for (let h of historyList) {
+                        const uid = (h.videoId || h.id || '') + '|' + (h.title || '');
+                        if (!seen.has(uid)) {
+                            seen.add(uid);
+                            uniqueHistory.push(h);
+                        }
+                    }
+                    populateArtGrid('jump-back-in-container', uniqueHistory.slice(0, 64));
+                    populateTasteMix(uniqueHistory);
+                    populateBecauseRows(uniqueHistory);
+                } else {
+                    if (jumpSection) jumpSection.style.display = 'none';
+                    populateTasteMix([]);
+                    const becauseCont = document.getElementById('home-because-rows-container');
+                    if (becauseCont) becauseCont.innerHTML = '';
+                }
+            } catch(e) {
+                console.warn('refreshHomePersonalization error:', e);
+            }
+        }
+        window.refreshHomePersonalization = refreshHomePersonalization;
+
         function saveToHistory(songData, rawYtThumb) {
-            if (appSettings.incognito) return; // Incognito mode ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skip saving
-            let history = JSON.parse(localStorage.getItem('music_history_full') || '[]');
-            const thumb = resolveYtThumb(rawYtThumb) || resolveYtThumb(songData.thumbnail) || '';
+            if (appSettings.incognito) return; // Incognito mode — skip saving
+            let history = getHistoryList();
+            const thumb = resolveYtThumb(rawYtThumb) || resolveYtThumb(songData.thumbnail) || resolveYtThumb(songData.cover) || '';
+            const vid = songData.videoId || songData.id || currentVideoId || '';
+            const artistName = songData.artist || songData.uploader || '';
             const newEntry = {
-                title: songData.title,
-                artist: songData.uploader,
+                title: songData.title || '',
+                artist: artistName,
                 cover: thumb,
-                videoId: songData.id || '',
+                videoId: vid,
                 timestamp: new Date().toISOString()
             };
-            history = history.filter(h => h.title !== newEntry.title); // Remove dupes
+            history = history.filter(h => (h.videoId && newEntry.videoId ? h.videoId !== newEntry.videoId : h.title !== newEntry.title)); // Remove dupes
             history.unshift(newEntry);
             if (history.length > 100) history.pop();
             localStorage.setItem('music_history_full', JSON.stringify(history));
@@ -1979,10 +2041,13 @@ function onPlayerStateChange(event) {
             // Legacy saving for recommendations API
             let simpleHistory = localStorage.getItem('music_history');
             simpleHistory = simpleHistory ? simpleHistory.split(',') : [];
-            const query = `${songData.title} ${songData.uploader}`;
-            if (!simpleHistory.includes(query)) simpleHistory.push(query);
+            const query = `${songData.title} ${artistName}`.trim();
+            if (query && !simpleHistory.includes(query)) simpleHistory.push(query);
             if (simpleHistory.length > 5) simpleHistory.shift();
             localStorage.setItem('music_history', simpleHistory.join(','));
+
+            // Dynamically refresh Home personalization immediately
+            refreshHomePersonalization();
         }
 
         function renderHistory() {
@@ -2063,12 +2128,10 @@ function onPlayerStateChange(event) {
             queueOpen = true;
             renderQueue();
             if (typeof updateQueueControlsState === 'function') updateQueueControlsState();
-            requestAnimationFrame(() => {
-                queuePanel.classList.add('open');
-                queueBackdrop.classList.add('open');
-                queueNavBtn.classList.add('active');
-                document.body.classList.add('queue-active');
-            });
+            queuePanel.classList.add('open');
+            queueBackdrop.classList.add('open');
+            queueNavBtn?.classList.add('active');
+            document.body.classList.add('queue-active');
         }
 
         function closeQueue() {
@@ -2083,21 +2146,33 @@ function onPlayerStateChange(event) {
 
         let queueCloseTimer = null;
         
-        function toggleQueue() {
+        function toggleQueue(e) {
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
             if (queueOpen) closeQueue(); else openQueue();
         }
 
         queueNavBtn?.addEventListener('click', toggleQueue);
         const topRightQueueBtn = document.getElementById('top-right-queue-btn');
         if (topRightQueueBtn) topRightQueueBtn.addEventListener('click', toggleQueue);
+        const playerQueueBtn = document.getElementById('player-queue-btn');
+        if (playerQueueBtn) playerQueueBtn.addEventListener('click', toggleQueue);
+        const miniQueueBtn = document.getElementById('mini-queue-btn');
+        if (miniQueueBtn) miniQueueBtn.addEventListener('click', toggleQueue);
         
-        closeQueueBtn?.addEventListener('click', closeQueue);
+        closeQueueBtn?.addEventListener('click', (e) => {
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            closeQueue();
+        });
         
         // Close when clicking backdrop
-        queueBackdrop?.addEventListener('click', closeQueue);
+        queueBackdrop?.addEventListener('click', (e) => {
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            closeQueue();
+        });
         
         document.addEventListener('click', (e) => {
-            if (queueOpen && !queuePanel?.contains(e.target) && !queueNavBtn?.contains(e.target) && !queueBackdrop?.contains(e.target)) {
+            if (e.target.closest('#player-queue-btn, #top-right-queue-btn, #floating-queue-btn, #mini-queue-btn')) return;
+            if (queueOpen && !queuePanel?.contains(e.target) && !queueBackdrop?.contains(e.target)) {
                 closeQueue();
             }
         });
@@ -2157,9 +2232,10 @@ function onPlayerStateChange(event) {
                 // Instantly update queue with the playing song to prevent stale queue bugs
                 queueList = [{
                     videoId: currentVideoId || videoId,
+                    id: currentVideoId || videoId,
                     title: currentTitle || (currentSongMeta ? currentSongMeta.title : 'Unknown'),
-                    artist: currentArtist || (currentSongMeta ? currentSongMeta.artist : 'Unknown'),
-                    cover: currentSongMeta ? currentSongMeta.cover : ''
+                    artist: currentArtist || (currentSongMeta ? (currentSongMeta.artist || currentSongMeta.uploader) : 'Unknown'),
+                    cover: currentSongMeta ? (currentSongMeta.cover || currentSongMeta.thumbnail) : ''
                 }];
                 currentQueueIndex = 0;
                 renderQueue();
@@ -2167,21 +2243,29 @@ function onPlayerStateChange(event) {
             
             try {
                 const title = currentTitle || currentSongMeta?.title || '';
-                const artist = currentArtist || currentSongMeta?.artist || '';
+                const artist = currentArtist || currentSongMeta?.artist || currentSongMeta?.uploader || '';
                 const params = new URLSearchParams();
-                if (videoId) params.set('videoId', videoId);
+                const vid = videoId || currentVideoId || '';
+                if (vid) params.set('videoId', vid);
                 if (title) params.set('title', title);
                 if (artist) params.set('artist', artist);
 
                 const res = await fetch(`/api/recommendations?${params.toString()}`);
                 const data = await res.json();
                 if (data.status === 'success' && data.recommendations && data.recommendations.length > 0) {
-                    const existingIds = new Set(queueList.map(s => s.videoId).filter(Boolean));
+                    const existingIds = new Set(queueList.map(s => s.videoId || s.id).filter(Boolean));
                     let addedAny = false;
                     data.recommendations.forEach(s => {
-                        if (s.videoId && !existingIds.has(s.videoId)) {
-                            existingIds.add(s.videoId);
-                            queueList.push(s);
+                        const trackId = s.videoId || s.id;
+                        if (trackId && !existingIds.has(trackId)) {
+                            existingIds.add(trackId);
+                            queueList.push({
+                                videoId: trackId,
+                                id: trackId,
+                                title: s.title,
+                                artist: s.artist || s.uploader || '',
+                                cover: s.cover || s.thumbnail || ''
+                            });
                             addedAny = true;
                         }
                     });
@@ -2195,11 +2279,20 @@ function onPlayerStateChange(event) {
         
         window.playTrackFromList = function(songJsonStr) {
             try {
-                const song = JSON.parse(songJsonStr.replace(/&quot;/g, '"'));
-                songSearchInput.value = `${song.title} ${song.artist || song.uploader || ''}`.trim();
-                window._forceQueueSong = { videoId: song.videoId || song.id, title: song.title, artist: song.artist || song.uploader || 'Unknown', thumbnail: song.cover || song.thumbnail };
+                const song = typeof songJsonStr === 'string' ? JSON.parse(songJsonStr.replace(/&quot;/g, '"')) : songJsonStr;
+                const vid = song.videoId || song.id || '';
+                const title = song.title || '';
+                const artist = song.artist || song.uploader || 'Unknown';
+                songSearchInput.value = `${title} ${artist}`.trim();
+                window._forceQueueSong = {
+                    id: vid,
+                    videoId: vid,
+                    title: title,
+                    artist: artist,
+                    thumbnail: song.cover || song.thumbnail || ''
+                };
                 searchBtn.click();
-            } catch(e) { console.error(e); }
+            } catch(e) { console.error('playTrackFromList error:', e); }
         };
 
         let prefetchedStreamUrl = null;
@@ -2885,9 +2978,11 @@ function onPlayerStateChange(event) {
                 
                 if (isFromQueue) {
                     songData = {
-                        id: window._forceQueueSong.videoId,
+                        id: window._forceQueueSong.videoId || window._forceQueueSong.id,
+                        videoId: window._forceQueueSong.videoId || window._forceQueueSong.id,
                         title: window._forceQueueSong.title,
-                        uploader: window._forceQueueSong.artist,
+                        uploader: window._forceQueueSong.artist || 'Unknown',
+                        artist: window._forceQueueSong.artist || 'Unknown',
                         thumbnail: window._forceQueueSong.thumbnail || window._forceQueueSong.cover || ''
                     };
                     window._forceQueueSong = null; // consume it
@@ -2899,19 +2994,22 @@ function onPlayerStateChange(event) {
                 
                 if (myToken !== currentPlaybackToken) return; // Race condition check
                 
-                currentVideoId = songData.id || null;
+                currentVideoId = songData.id || songData.videoId || null;
 
                 // INSTANT SYNCHRONOUS QUEUE RESET (unless playing a preserved playlist)
                 if (!window._preserveQueue) {
                     queueRenderLimit = 10;
                     queueList = [{
                         videoId: currentVideoId,
+                        id: currentVideoId,
                         title: songData.title,
-                        artist: songData.uploader,
-                        cover: songData.thumbnail || ''
+                        artist: songData.uploader || songData.artist || '',
+                        cover: songData.thumbnail || songData.cover || ''
                     }];
                     currentQueueIndex = 0;
                     renderQueue();
+                    // ASYNC QUEUE POPULATION IMMEDIATELY! Do not wait for stream and lyrics!
+                    populateQueue(currentVideoId, true, songData.title, songData.uploader || songData.artist || '');
                 } else {
                     window._preserveQueue = false; // consume
                 }
@@ -3054,8 +3152,10 @@ function onPlayerStateChange(event) {
                 nextBtn.disabled = false;
                 prevBtn.disabled = false;
                 
-                // Populate recommendations for infinite radio
-                populateQueue(songData.videoId || songData.id, true, songData.title, songData.uploader);
+                // Ensure recommendations are loaded if not already filled
+                if (queueList.length <= 1) {
+                    populateQueue(songData.videoId || songData.id || currentVideoId, true, songData.title, songData.uploader || songData.artist || '');
+                }
 
                 // Quality badge
                 if (streamData.quality) {
@@ -3620,26 +3720,8 @@ function onPlayerStateChange(event) {
         // --- AUTO-TRENDING & PERSONALIZATION ---
         async function loadTrendingFeeds() {
             try {
-                // Populate Jump Back In from History
-                const historyStr = localStorage.getItem('music_history_full') || '[]';
-                const historyList = JSON.parse(historyStr);
-                if (historyList.length > 0) {
-                    document.getElementById('jump-back-in-section').style.display = 'block';
-                    // Get unique songs
-                    const uniqueHistory = [];
-                    const seen = new Set();
-                    for(let h of historyList) {
-                        const id = h.title + '|' + h.artist;
-                        if(!seen.has(id)) {
-                            seen.add(id);
-                            uniqueHistory.push(h);
-                        }
-                    }
-                    populateArtGrid('jump-back-in-container', uniqueHistory.slice(0, 64));
-                    // Fire the new smart recommendation engine (non-blocking)
-                    populateTasteMix(uniqueHistory);
-                    populateBecauseRows(uniqueHistory);
-                }
+                // Populate Jump Back In, Your Taste Mix, Because rows
+                refreshHomePersonalization();
                 populateHomeTopArtists();
 
                 // Load Dynamic Sections Asynchronously
@@ -4004,18 +4086,43 @@ function onPlayerStateChange(event) {
         // 1) Taste Mix: picks 5 diverse songs from history, fetches recs for each, shuffles all together
         // 2) Because Rows: 3 separate "Because you listened to X" rows from different songs
 
+        let tasteMixToken = 0;
         async function populateTasteMix(historyItems) {
             const section = document.getElementById('home-taste-mix-section');
             const container = document.getElementById('home-taste-mix-container');
-            if (!section || !container || !historyItems || historyItems.length === 0) return;
+            if (!section || !container) return;
 
-            // Pick up to 5 diverse seeds, spaced out from history
-            const seeds = [];
-            const step = Math.max(1, Math.floor(historyItems.length / 5));
-            for (let i = 0; i < historyItems.length && seeds.length < 5; i += step) {
-                if (historyItems[i] && historyItems[i].videoId) seeds.push(historyItems[i]);
+            const myToken = ++tasteMixToken;
+            const valid = (historyItems || []).filter(h => h && (h.videoId || h.id || h.title));
+
+            // If no history items yet, load trending tracks into Taste Mix as a starter AI Mix
+            if (valid.length === 0) {
+                try {
+                    const trendRes = await fetch('/api/trending');
+                    const trendData = await trendRes.json();
+                    if (myToken !== tasteMixToken) return;
+                    if (trendData.status === 'success' && trendData.results && trendData.results.length > 0) {
+                        section.style.display = 'block';
+                        populateCinematicCards('home-taste-mix-container', trendData.results.slice(0, 24).map(s => ({
+                            videoId: s.videoId || s.id,
+                            id: s.videoId || s.id,
+                            title: s.title,
+                            artist: s.artist || s.uploader || '',
+                            cover: s.thumbnail || s.cover || '',
+                            type: 'song'
+                        })));
+                    }
+                } catch(e) {}
+                return;
             }
-            if (seeds.length === 0) return;
+
+            // Pick up to 5 diverse seeds from history
+            const seeds = [];
+            const step = Math.max(1, Math.floor(valid.length / 5));
+            for (let i = 0; i < valid.length && seeds.length < 5; i += step) {
+                seeds.push(valid[i]);
+            }
+            if (seeds.length === 0) seeds.push(valid[0]);
 
             section.style.display = 'block';
             container.innerHTML = '<div class="empty-state" style="padding:20px;"><div class="premium-glass-loader" style="margin:0 auto 10px;"></div>Building your mix...</div>';
@@ -4025,20 +4132,43 @@ function onPlayerStateChange(event) {
             const seenIds = new Set();
             await Promise.all(seeds.map(async (seed) => {
                 try {
-                    const res = await fetch('/api/recommendations?videoId=' + encodeURIComponent(seed.videoId));
+                    const vid = seed.videoId || seed.id || '';
+                    const title = seed.title || '';
+                    const artist = seed.artist || seed.uploader || '';
+                    const params = new URLSearchParams();
+                    if (vid) params.set('videoId', vid);
+                    if (title) params.set('title', title);
+                    if (artist) params.set('artist', artist);
+
+                    const res = await fetch(`/api/recommendations?${params.toString()}`);
                     const data = await res.json();
                     if (data.status === 'success' && data.recommendations) {
                         data.recommendations.forEach(s => {
-                            if (!seenIds.has(s.videoId)) {
-                                seenIds.add(s.videoId);
-                                allRecs.push({ videoId: s.videoId, title: s.title, artist: s.artist, cover: s.cover || s.thumbnail || '', type: 'song' });
+                            const trackId = s.videoId || s.id;
+                            if (trackId && !seenIds.has(trackId)) {
+                                seenIds.add(trackId);
+                                allRecs.push({
+                                    videoId: trackId,
+                                    id: trackId,
+                                    title: s.title,
+                                    artist: s.artist || s.uploader || '',
+                                    cover: s.cover || s.thumbnail || '',
+                                    type: 'song'
+                                });
                             }
                         });
                     }
-                } catch(e) {}
+                } catch(e) {
+                    console.warn("TasteMix seed error:", e);
+                }
             }));
 
-            if (allRecs.length === 0) { section.style.display = 'none'; return; }
+            if (myToken !== tasteMixToken) return;
+
+            if (allRecs.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
 
             // Shuffle the pool for true mix feel
             for (let i = allRecs.length - 1; i > 0; i--) {
@@ -4049,39 +4179,64 @@ function onPlayerStateChange(event) {
             populateCinematicCards('home-taste-mix-container', allRecs.slice(0, 24));
         }
 
+        let becauseRowsToken = 0;
         async function populateBecauseRows(historyItems) {
             const rowsContainer = document.getElementById('home-because-rows-container');
             if (!rowsContainer || !historyItems || historyItems.length === 0) return;
-            rowsContainer.innerHTML = '';
 
-            // Pick 3 different songs from history (beginning, middle, near end)
+            const myToken = ++becauseRowsToken;
+            const validHistory = historyItems.filter(h => h && (h.videoId || h.id || h.title));
+            if (validHistory.length === 0) {
+                rowsContainer.innerHTML = '';
+                return;
+            }
+
+            // Pick up to 3 distinct songs from history
             const picks = [];
-            const validHistory = historyItems.filter(h => h && h.videoId);
-            if (validHistory.length === 0) return;
+            const seenTitles = new Set();
+            for (const h of validHistory) {
+                const norm = (h.title || '').trim().toLowerCase();
+                if (norm && !seenTitles.has(norm)) {
+                    seenTitles.add(norm);
+                    picks.push(h);
+                    if (picks.length >= 3) break;
+                }
+            }
+            if (picks.length === 0) return;
 
-            const indices = [0];
-            if (validHistory.length > 2) indices.push(Math.floor(validHistory.length / 2));
-            if (validHistory.length > 4) indices.push(validHistory.length - 1);
-            indices.forEach(i => { if (validHistory[i]) picks.push(validHistory[i]); });
+            rowsContainer.innerHTML = '';
 
             for (const song of picks) {
                 try {
-                    const res = await fetch('/api/recommendations?videoId=' + encodeURIComponent(song.videoId));
+                    const vid = song.videoId || song.id || '';
+                    const title = song.title || '';
+                    const artist = song.artist || song.uploader || '';
+                    const params = new URLSearchParams();
+                    if (vid) params.set('videoId', vid);
+                    if (title) params.set('title', title);
+                    if (artist) params.set('artist', artist);
+
+                    const res = await fetch(`/api/recommendations?${params.toString()}`);
+                    if (myToken !== becauseRowsToken) return;
                     const data = await res.json();
+                    if (myToken !== becauseRowsToken) return;
                     if (data.status !== 'success' || !data.recommendations || data.recommendations.length === 0) continue;
 
-                    const rowId = 'because-row-' + song.videoId;
+                    const rowId = 'because-row-' + (vid || Math.random().toString(36).slice(2, 8));
+                    if (document.getElementById(rowId)) continue;
                     const sectionEl = document.createElement('div');
                     sectionEl.className = 'home-section';
                     sectionEl.style.marginBottom = '28px';
+                    const songCover = song.cover || (vid ? `https://img.youtube.com/vi/${vid}/hqdefault.jpg` : 'default_cover.jpg');
+                    const escapedTitle = title.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     sectionEl.innerHTML = `
                         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
-                            <img src="${getCoverUrl(song.title + ' ' + song.artist, song.cover || '', song.videoId)}" 
-                                 style="width:36px;height:36px;border-radius:8px;object-fit:cover;flex-shrink:0;" 
+                            <img src="${getCoverUrl((title + ' ' + artist).trim(), songCover, vid)}" 
+                                 style="width:38px;height:38px;border-radius:10px;object-fit:cover;flex-shrink:0;box-shadow:0 4px 12px rgba(0,0,0,0.4);" 
                                  onerror="this.src='default_cover.jpg'" alt="">
                             <div>
                                 <div style="font-size:0.7rem;color:rgba(255,255,255,0.5);font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">Because you listened to</div>
-                                <h2 class="section-title" style="margin:0; font-size:1rem;">${song.title}</h2>
+                                <h2 class="section-title" style="margin:0; font-size:1.05rem;">${escapedTitle}</h2>
                             </div>
                         </div>
                         <div class="dense-grid-container" id="${rowId}"></div>
@@ -4089,9 +4244,16 @@ function onPlayerStateChange(event) {
                     rowsContainer.appendChild(sectionEl);
 
                     populateDenseGrid(rowId, data.recommendations.map(s => ({
-                        videoId: s.videoId, title: s.title, artist: s.artist, cover: s.cover || s.thumbnail || '', type: 'song'
+                        videoId: s.videoId || s.id,
+                        id: s.videoId || s.id,
+                        title: s.title,
+                        artist: s.artist || s.uploader || '',
+                        cover: s.cover || s.thumbnail || '',
+                        type: 'song'
                     })));
-                } catch(e) {}
+                } catch(e) {
+                    console.warn("Because row error:", e);
+                }
             }
         }
 
@@ -4191,6 +4353,9 @@ function onPlayerStateChange(event) {
                 }
             }
 
+            if (showId === 'home-screen' && typeof refreshHomePersonalization === 'function') {
+                refreshHomePersonalization();
+            }
             if (typeof closeQueue === 'function') closeQueue();
         }
         window.showScreen = showScreenExcept;
@@ -4800,9 +4965,9 @@ function onPlayerStateChange(event) {
         window.showRemotePlaylistPage = showRemotePlaylistPage;
 
         function playTrackFromList(songJsonStr) {
-            const song = JSON.parse(songJsonStr);
-            songSearchInput.value = song.title + ' ' + song.artist;
-            searchBtn.click();
+            if (window.playTrackFromList) {
+                window.playTrackFromList(songJsonStr);
+            }
         }
 
         window.playSong = function(videoId, songJsonStr, element) {
@@ -4989,13 +5154,19 @@ function onPlayerStateChange(event) {
             nowCard.addEventListener('click', () => playPauseBtn.click());
             hScroll.appendChild(nowCard);
 
-            // DIVIDER
+            // DIVIDER OR LOADING PILL
             if (totalUpNext > 0) {
                 const divider = document.createElement('div');
                 divider.className = 'q-section-divider';
                 divider.style.setProperty('--card-index', 1);
                 divider.innerHTML = `<div class="q-section-divider-line"></div><div class="q-section-divider-dot"></div><div class="q-section-divider-line"></div>`;
                 hScroll.appendChild(divider);
+            } else if (isSongLoaded) {
+                const loadingPill = document.createElement('div');
+                loadingPill.className = 'q-loading-indicator';
+                loadingPill.style.cssText = 'display:flex;align-items:center;gap:10px;padding:14px 22px;border-radius:24px;background:rgba(255,255,255,0.06);margin-left:14px;align-self:center;white-space:nowrap;color:rgba(255,255,255,0.7);font-size:0.85rem;font-weight:600;border:1px solid rgba(255,255,255,0.08);';
+                loadingPill.innerHTML = '<div class="premium-glass-loader" style="width:16px;height:16px;border-width:2px;margin:0;"></div> Generating Up Next Radio...';
+                hScroll.appendChild(loadingPill);
             }
 
             // Global variable for active drag
