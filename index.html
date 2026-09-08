@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <!-- Primary Meta Tags -->
-    <link rel="icon" type="image/png" href="logo.png?v=3">
-    <link rel="apple-touch-icon" href="logo.png?v=3">
+    <link rel="icon" type="image/png" href="logo.png?v=5">
+    <link rel="apple-touch-icon" href="logo.png?v=5">
     <title>AxioTune - Premium Music Streaming</title>
     <meta name="title" content="AxioTune - Premium Music Streaming">
     <meta name="description" content="A blazing fast, ad-free premium music streaming platform with liquid glass UI, synced lyrics, and instant playback. Built for music lovers.">
@@ -35,446 +35,282 @@
     <!-- Load YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
     
-    <link rel="stylesheet" href="style_mobile_fix_v4.css?v=250">
+    <link rel="stylesheet" href="style_mobile_fix_v4.css?v=252">
     <link rel="manifest" href="manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700;800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Cinzel:wght@400..900&family=Pacifico&family=Bebas+Neue&family=Syncopate:wght@400;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Lobster&family=Permanent+Marker&family=Abril+Fatface&family=Bungee&family=Oswald:wght@700&display=swap" rel="stylesheet"></head>
 <body class="">
     <!-- ══════════════════════════════════════════════════════════════
-         CINEMATIC INTRO — Multi-Phase Full-Screen Experience v3
+         MINIMALIST AUDIOPHILE INTRO — Ultra-Fluid Apple-Spec Experience
     ══════════════════════════════════════════════════════════════ -->
     <style>
-    *,*::before,*::after{box-sizing:border-box}
-    #ISS{
-        position:fixed;inset:0;z-index:9999999;background:#000;
-        overflow:hidden;cursor:none;
-    }
-    /* Phase canvas layers */
-    #ISS canvas{position:absolute;inset:0;width:100%;height:100%;}
-    #ISS-bg{z-index:1;}
-    #ISS-fx{z-index:3;pointer-events:none;}
-
-    /* ── Phase containers ── */
-    .iss-phase{
-        position:absolute;inset:0;z-index:5;
-        display:flex;align-items:center;justify-content:center;
-        opacity:0;pointer-events:none;
-    }
-
-    /* ─── PHASE 1: WORDMARK SLAM ─── */
-    #ISP1{flex-direction:column;gap:0;}
-    .iss-axio{
-        font-family:'Syncopate','Bebas Neue',monospace;
-        font-size:clamp(5rem,18vw,14rem);
-        font-weight:700;
-        letter-spacing:0.18em;
-        color:#fff;
-        line-height:0.85;
-        transform:translateY(-120px) scaleY(1.4);
-        opacity:0;
-        display:block;
-        text-shadow:0 0 80px rgba(168,85,247,0.8),0 0 160px rgba(168,85,247,0.4);
-    }
-    .iss-tune{
-        font-family:'Syncopate','Bebas Neue',monospace;
-        font-size:clamp(5rem,18vw,14rem);
-        font-weight:700;
-        letter-spacing:0.18em;
-        line-height:0.85;
-        transform:translateY(120px) scaleY(1.4);
-        opacity:0;
-        display:block;
-        background:linear-gradient(135deg,#a855f7 0%,#00f0ff 50%,#ff2d55 100%);
-        -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-        filter:drop-shadow(0 0 40px rgba(0,240,255,0.7));
-    }
-    .iss-slash{
-        position:absolute;
-        left:0;right:0;
-        top:50%;
-        height:3px;
-        background:linear-gradient(90deg,transparent,#a855f7 20%,#fff 50%,#00f0ff 80%,transparent);
-        transform:scaleX(0);transform-origin:center;
-        box-shadow:0 0 30px #a855f7,0 0 60px #00f0ff;
-        opacity:0;
+    #axio-intro-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999999;
+        background: radial-gradient(circle at 50% 45%, #140924 0%, #08080c 60%, #030305 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: default;
+        transition: opacity 0.55s cubic-bezier(0.32, 0.72, 0, 1), filter 0.55s cubic-bezier(0.32, 0.72, 0, 1), transform 0.55s cubic-bezier(0.32, 0.72, 0, 1);
+        will-change: opacity, filter, transform;
     }
 
-    /* ─── PHASE 2: LOGO + RINGS ─── */
-    #ISP2{flex-direction:column;align-items:center;gap:32px;}
-    #iss-logo-wrap{
-        position:relative;
-        width:clamp(180px,35vw,280px);
-        height:clamp(180px,35vw,280px);
-        opacity:0;transform:scale(0.2) rotate(-30deg);
-    }
-    #iss-logo-svg{width:100%;height:100%;
-        filter:drop-shadow(0 0 60px rgba(168,85,247,1)) drop-shadow(0 0 120px rgba(0,240,255,0.7));
-    }
-    .iss-ring{
-        position:absolute;
-        border-radius:50%;
-        border:1.5px solid transparent;
-        top:50%;left:50%;
-        transform:translate(-50%,-50%) scale(0);
-        opacity:0;
-    }
-    .iss-ring-1{width:130%;height:130%;border-color:rgba(168,85,247,0.6);}
-    .iss-ring-2{width:165%;height:165%;border-color:rgba(0,240,255,0.4);border-style:dashed;}
-    .iss-ring-3{width:200%;height:200%;border-color:rgba(255,45,85,0.3);}
-
-    #iss-tagline{
-        font-family:'Syncopate',monospace;
-        font-size:clamp(0.6rem,2.2vw,1rem);
-        letter-spacing:0.6em;
-        text-transform:uppercase;
-        color:rgba(255,255,255,0);
-        font-weight:700;
-    }
-    #iss-progress-bar{
-        position:absolute;
-        bottom:0;left:0;
-        height:3px;
-        width:0%;
-        background:linear-gradient(90deg,#a855f7,#00f0ff,#ff2d55);
-        box-shadow:0 0 20px #a855f7,0 0 40px #00f0ff;
+    #axio-intro-overlay.intro-exit {
+        opacity: 0 !important;
+        filter: blur(12px) brightness(1.2) !important;
+        transform: scale(1.04) !important;
+        pointer-events: none !important;
     }
 
-    /* ─── PHASE 3: FULL SCREEN GLITCH EXIT ─── */
-    #ISP3{
-        background:transparent;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
+    /* Ambient atmospheric glow */
+    .intro-ambient-glow {
+        position: absolute;
+        width: min(520px, 92vw);
+        height: min(520px, 92vw);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 45, 85, 0.22) 0%, rgba(168, 85, 247, 0.12) 40%, transparent 70%);
+        filter: blur(55px);
+        pointer-events: none;
+        animation: intro-glow-pulse 3s ease-in-out infinite alternate;
     }
-    #iss-glitch-text{
-        font-family:'Syncopate','Bebas Neue',monospace;
-        font-size:clamp(6rem,22vw,18rem);
-        font-weight:700;
-        letter-spacing:0.1em;
-        color:#fff;
-        position:relative;
-        opacity:0;
-        text-transform:uppercase;
-    }
-    #iss-glitch-text::before{
-        content:'AXIØTUNE';
-        position:absolute;inset:0;
-        color:#ff2d55;
-        clip-path:polygon(0 30%,100% 30%,100% 50%,0 50%);
-        transform:translate(-6px,0);
-        mix-blend-mode:screen;
-        animation:iss-glitch-r 0.15s steps(2) infinite;
-    }
-    #iss-glitch-text::after{
-        content:'AXIØTUNE';
-        position:absolute;inset:0;
-        color:#00f0ff;
-        clip-path:polygon(0 60%,100% 60%,100% 80%,0 80%);
-        transform:translate(6px,0);
-        mix-blend-mode:screen;
-        animation:iss-glitch-b 0.18s steps(3) infinite;
-    }
-    @keyframes iss-glitch-r{
-        0%{clip-path:polygon(0 25%,100% 25%,100% 45%,0 45%);transform:translate(-8px,2px);}
-        50%{clip-path:polygon(0 55%,100% 55%,100% 70%,0 70%);transform:translate(5px,-3px);}
-        100%{clip-path:polygon(0 30%,100% 30%,100% 50%,0 50%);transform:translate(-6px,0);}
-    }
-    @keyframes iss-glitch-b{
-        0%{clip-path:polygon(0 65%,100% 65%,100% 80%,0 80%);transform:translate(9px,-2px);}
-        50%{clip-path:polygon(0 20%,100% 20%,100% 35%,0 35%);transform:translate(-4px,4px);}
-        100%{clip-path:polygon(0 60%,100% 60%,100% 80%,0 80%);transform:translate(6px,0);}
+    @keyframes intro-glow-pulse {
+        0% { transform: scale(0.9); opacity: 0.65; }
+        100% { transform: scale(1.15); opacity: 1; }
     }
 
-    /* Flash overlay */
-    #iss-flash{
-        position:absolute;inset:0;z-index:20;
-        background:#fff;opacity:0;pointer-events:none;
+    /* Acoustic harmonic rings */
+    .intro-rings-wrap {
+        position: absolute;
+        width: 140px;
+        height: 140px;
+        pointer-events: none;
+    }
+    .intro-ring {
+        position: absolute;
+        inset: -25px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        opacity: 0;
+        transform: scale(0.6);
+        animation: intro-ring-expand 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .intro-ring.ring-2 {
+        inset: -55px;
+        border-color: rgba(255, 45, 85, 0.2);
+        animation-delay: 0.15s;
+    }
+    .intro-ring.ring-3 {
+        inset: -85px;
+        border-color: rgba(168, 85, 247, 0.15);
+        animation-delay: 0.3s;
+    }
+    @keyframes intro-ring-expand {
+        0% { transform: scale(0.6); opacity: 0; }
+        35% { opacity: 0.75; }
+        100% { transform: scale(1.15); opacity: 0; }
+    }
+
+    /* Central Content Stage */
+    .intro-stage {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        text-align: center;
+    }
+
+    /* Emblem Logo */
+    .intro-logo-container {
+        position: relative;
+        width: clamp(76px, 14vw, 98px);
+        height: clamp(76px, 14vw, 98px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transform: scale(0.85) translate3d(0, 12px, 0);
+        filter: blur(8px);
+        animation: intro-logo-appear 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+    }
+    .intro-logo-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+        box-shadow: 0 12px 35px rgba(0, 0, 0, 0.65), 0 0 45px rgba(255, 45, 85, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+    }
+    @keyframes intro-logo-appear {
+        0% { opacity: 0; transform: scale(0.85) translate3d(0, 12px, 0); filter: blur(8px); }
+        100% { opacity: 1; transform: scale(1) translate3d(0, 0, 0); filter: blur(0px); }
+    }
+
+    /* Brand Typography */
+    .intro-brand-title {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+        font-size: clamp(1.4rem, 3.8vw, 2.1rem);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-indent: 0.32em;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 45%, #cbd5e1 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin: 0;
+        opacity: 0;
+        transform: translate3d(0, 10px, 0);
+        filter: blur(6px);
+        animation: intro-title-appear 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.28s forwards;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .intro-brand-title .intro-special-slash {
+        color: #ff2d55;
+        -webkit-text-fill-color: #ff2d55;
+        text-shadow: 0 0 16px rgba(255, 45, 85, 0.8);
+        display: inline-block;
+        padding: 0 1px;
+    }
+    @keyframes intro-title-appear {
+        0% { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(6px); }
+        100% { opacity: 1; transform: translate3d(0, 0, 0); filter: blur(0px); }
+    }
+
+    /* Soundwave Equalizer Bars */
+    .intro-eq-bars {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 18px;
+        opacity: 0;
+        transform: scale(0.9);
+        animation: intro-eq-appear 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.42s forwards;
+    }
+    .intro-eq-bar {
+        width: 2.5px;
+        background: linear-gradient(180deg, #ff2d55, #a855f7);
+        border-radius: 3px;
+        box-shadow: 0 0 8px rgba(255, 45, 85, 0.4);
+        animation: intro-bar-bounce 1s ease-in-out infinite alternate;
+    }
+    .intro-eq-bar:nth-child(1) { height: 7px; animation-delay: 0.1s; }
+    .intro-eq-bar:nth-child(2) { height: 16px; animation-delay: 0.35s; }
+    .intro-eq-bar:nth-child(3) { height: 22px; animation-delay: 0.2s; }
+    .intro-eq-bar:nth-child(4) { height: 14px; animation-delay: 0.45s; }
+    .intro-eq-bar:nth-child(5) { height: 8px; animation-delay: 0.15s; }
+    @keyframes intro-bar-bounce {
+        0% { transform: scaleY(0.4); opacity: 0.6; }
+        100% { transform: scaleY(1.1); opacity: 1; }
+    }
+    @keyframes intro-eq-appear {
+        0% { opacity: 0; transform: scale(0.9); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* Tagline */
+    .intro-tagline {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+        font-size: clamp(0.58rem, 1.4vw, 0.72rem);
+        font-weight: 600;
+        letter-spacing: 0.42em;
+        text-indent: 0.42em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.42);
+        margin: 0;
+        opacity: 0;
+        transform: translate3d(0, 8px, 0);
+        animation: intro-tag-appear 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+    }
+    @keyframes intro-tag-appear {
+        0% { opacity: 0; transform: translate3d(0, 8px, 0); }
+        100% { opacity: 0.55; transform: translate3d(0, 0, 0); }
+    }
+
+    /* Skip Hint */
+    .intro-skip-hint {
+        position: absolute;
+        bottom: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+        font-size: 0.65rem;
+        letter-spacing: 0.15em;
+        color: rgba(255, 255, 255, 0.22);
+        opacity: 0;
+        animation: intro-tag-appear 0.5s ease 0.9s forwards;
+        pointer-events: none;
     }
     </style>
 
-    <div id="ISS">
-        <canvas id="ISS-bg"></canvas>
-        <canvas id="ISS-fx"></canvas>
-
-        <!-- Phase 1: Dual-word slam -->
-        <div class="iss-phase" id="ISP1">
-            <span class="iss-axio" id="iss-axio">AXIO</span>
-            <div class="iss-slash" id="iss-slash"></div>
-            <span class="iss-tune" id="iss-tune">TUNE</span>
-        </div>
-
-        <!-- Phase 2: Logo reveal -->
-        <div class="iss-phase" id="ISP2">
-            <div id="iss-logo-wrap">
-                <img src="logo.png?v=4" id="iss-logo-svg" alt="AxioTune Logo" style="width: 100%; height: 100%; object-fit: contain; border-radius: 50%; filter: drop-shadow(0 0 50px rgba(255,255,255,0.9));">
-                <div class="iss-ring iss-ring-1" id="iss-r1"></div>
-                <div class="iss-ring iss-ring-2" id="iss-r2"></div>
-                <div class="iss-ring iss-ring-3" id="iss-r3"></div>
+    <div id="axio-intro-overlay">
+        <div class="intro-ambient-glow"></div>
+        
+        <div class="intro-stage">
+            <div class="intro-logo-container">
+                <div class="intro-rings-wrap">
+                    <div class="intro-ring ring-1"></div>
+                    <div class="intro-ring ring-2"></div>
+                    <div class="intro-ring ring-3"></div>
+                </div>
+                <img src="logo.png?v=5" alt="AxioTune Logo" class="intro-logo-img">
             </div>
-            <div id="iss-tagline">Premium Music Experience</div>
+
+            <h1 class="intro-brand-title">
+                AXI<span class="intro-special-slash">Ø</span>TUNE
+            </h1>
+
+            <div class="intro-eq-bars">
+                <div class="intro-eq-bar"></div>
+                <div class="intro-eq-bar"></div>
+                <div class="intro-eq-bar"></div>
+                <div class="intro-eq-bar"></div>
+                <div class="intro-eq-bar"></div>
+            </div>
+
+            <p class="intro-tagline">Feel Every Frequency</p>
         </div>
 
-        <!-- Phase 3: Massive glitch exit text -->
-        <div class="iss-phase" id="ISP3">
-            <div id="iss-glitch-text">AXIØTUNE</div>
-        </div>
-
-        <!-- Flash overlay + progress bar -->
-        <div id="iss-flash"></div>
-        <div id="iss-progress-bar"></div>
+        <div class="intro-skip-hint">Tap anywhere to enter</div>
     </div>
 
     <script>
-    (function(){
-    'use strict';
+    (function() {
+        'use strict';
+        const overlay = document.getElementById('axio-intro-overlay');
+        if (!overlay) return;
 
-    /* ── CANVAS: Particle Storm ── */
-    var bgC=document.getElementById('ISS-bg'),bgX=bgC.getContext('2d');
-    var fxC=document.getElementById('ISS-fx'),fxX=fxC.getContext('2d');
-    var W,H,animId;
-    function rsz(){
-        W=bgC.width=fxC.width=window.innerWidth;
-        H=bgC.height=fxC.height=window.innerHeight;
-    }
-    rsz();window.addEventListener('resize',rsz);
-
-    var CL=['#a855f7','#00f0ff','#ff2d55','#fff','#c084fc','#818cf8'];
-    function rnd(a,b){return Math.random()*(b-a)+a;}
-    function rndC(){return CL[Math.floor(Math.random()*CL.length)];}
-
-    /* Particles */
-    var PS=[];
-    for(var i=0;i<400;i++) PS.push({
-        x:rnd(0,1000),y:rnd(0,800),
-        r:rnd(.3,2.2),vx:rnd(-.6,.6),vy:rnd(-.6,.6),
-        alpha:rnd(.1,.7),color:rndC(),life:rnd(.3,1),decay:rnd(.001,.004)
-    });
-
-    /* Energy beams */
-    var BEAMS=[];
-    for(var b=0;b<5;b++) BEAMS.push(newBeam());
-    function newBeam(){
-        return{x:rnd(0,1000),y:rnd(0,800),
-            angle:rnd(0,Math.PI*2),speed:rnd(4,10),
-            len:rnd(80,200),width:rnd(.5,2),
-            color:rndC(),life:1,decay:rnd(.015,.03),alpha:rnd(.4,.9)};
-    }
-
-    var bgTime=0;
-    function drawBg(){
-        bgTime+=.005;
-        bgX.clearRect(0,0,W,H);
-        /* Deep nebula */
-        var g=bgX.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
-        g.addColorStop(0,'#1a0840');
-        g.addColorStop(.4,'#08021c');
-        g.addColorStop(.8,'#020008');
-        g.addColorStop(1,'#000');
-        bgX.fillStyle=g;bgX.fillRect(0,0,W,H);
-        /* Pulsing orbs */
-        var p1=Math.sin(bgTime)*0.15+0.7;
-        var og=bgX.createRadialGradient(W*.2,H*.25,0,W*.2,H*.25,W*.5);
-        og.addColorStop(0,'rgba(168,85,247,'+p1*.18+')');
-        og.addColorStop(1,'transparent');
-        bgX.fillStyle=og;bgX.fillRect(0,0,W,H);
-        var og2=bgX.createRadialGradient(W*.8,H*.75,0,W*.8,H*.75,W*.5);
-        og2.addColorStop(0,'rgba(0,240,255,'+(Math.sin(bgTime+1)*.1+.12)+')');
-        og2.addColorStop(1,'transparent');
-        bgX.fillStyle=og2;bgX.fillRect(0,0,W,H);
-    }
-
-    function drawFx(){
-        fxX.clearRect(0,0,W,H);
-        /* Particles */
-        for(var i=0;i<PS.length;i++){
-            var p=PS[i];
-            p.x+=p.vx;p.y+=p.vy;p.life-=p.decay;
-            if(p.life<=0){
-                p.x=Math.random()*W;p.y=Math.random()*H;
-                p.r=rnd(.3,2.2);p.vx=rnd(-.6,.6);p.vy=rnd(-.6,.6);
-                p.alpha=rnd(.1,.7);p.color=rndC();p.life=rnd(.5,1);p.decay=rnd(.001,.004);
-            } else {
-                fxX.save();
-                fxX.globalAlpha=p.alpha*p.life;
-                fxX.shadowColor=p.color;fxX.shadowBlur=12;
-                fxX.fillStyle=p.color;
-                fxX.beginPath();fxX.arc(p.x,p.y,p.r,0,Math.PI*2);fxX.fill();
-                fxX.restore();
-            }
+        let dismissed = false;
+        function dismissIntro() {
+            if (dismissed) return;
+            dismissed = true;
+            overlay.classList.add('intro-exit');
+            setTimeout(function() {
+                if (overlay && overlay.parentNode) {
+                    overlay.remove();
+                }
+            }, 580);
         }
-        /* Energy beams */
-        for(var j=0;j<BEAMS.length;j++){
-            var s=BEAMS[j];
-            s.x+=Math.cos(s.angle)*s.speed;
-            s.y+=Math.sin(s.angle)*s.speed;
-            s.life-=s.decay;
-            if(s.life<=0||s.x<-300||s.x>W+300||s.y<-300||s.y>H+300) BEAMS[j]=newBeam();
-            else{
-                fxX.save();fxX.globalAlpha=s.alpha*s.life;
-                var sg=fxX.createLinearGradient(
-                    s.x-Math.cos(s.angle)*s.len,s.y-Math.sin(s.angle)*s.len,s.x,s.y);
-                sg.addColorStop(0,'transparent');sg.addColorStop(1,s.color);
-                fxX.strokeStyle=sg;fxX.lineWidth=s.width;
-                fxX.shadowColor=s.color;fxX.shadowBlur=15;
-                fxX.beginPath();
-                fxX.moveTo(s.x-Math.cos(s.angle)*s.len,s.y-Math.sin(s.angle)*s.len);
-                fxX.lineTo(s.x,s.y);fxX.stroke();fxX.restore();
+
+        // Auto-dismiss smoothly after 1.85s
+        const autoTimer = setTimeout(dismissIntro, 1850);
+
+        // Instant dismiss on click or tap anywhere
+        overlay.addEventListener('click', function() {
+            clearTimeout(autoTimer);
+            dismissIntro();
+        });
+        window.addEventListener('keydown', function onKey(e) {
+            if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') {
+                window.removeEventListener('keydown', onKey);
+                clearTimeout(autoTimer);
+                dismissIntro();
             }
-        }
-    }
-
-    function loop(){drawBg();drawFx();animId=requestAnimationFrame(loop);}
-    animId=requestAnimationFrame(loop);
-
-    /* ── DOM refs ── */
-    var ISS=document.getElementById('ISS');
-    var ISP1=document.getElementById('ISP1');
-    var ISP2=document.getElementById('ISP2');
-    var ISP3=document.getElementById('ISP3');
-    var axio=document.getElementById('iss-axio');
-    var tune=document.getElementById('iss-tune');
-    var slash=document.getElementById('iss-slash');
-    var logo=document.getElementById('iss-logo-wrap');
-    var r1=document.getElementById('iss-r1');
-    var r2=document.getElementById('iss-r2');
-    var r3=document.getElementById('iss-r3');
-    var tag=document.getElementById('iss-tagline');
-    var gt=document.getElementById('iss-glitch-text');
-    var flash=document.getElementById('iss-flash');
-    var prog=document.getElementById('iss-progress-bar');
-
-    function setT(el,props){Object.assign(el.style,props);}
-    function ease(t){return t<.5?4*t*t*t:(t-1)*(2*t-2)*(2*t-2)+1;}
-    function spring(t){var s=1.70158;return(s+1)*t*t*t-s*t*t;}
-
-    function animate(el,from,to,dur,delay,propFn,done){
-        setTimeout(function(){
-            var start=null;
-            function step(ts){
-                if(!start)start=ts;
-                var t=Math.min((ts-start)/dur,1);
-                propFn(el,from+(to-from)*ease(t));
-                if(t<1)requestAnimationFrame(step);
-                else if(done)done();
-            }
-            requestAnimationFrame(step);
-        },delay);
-    }
-
-    function flashScreen(intensity,dur,cb){
-        setT(flash,{transition:'none',opacity:String(intensity)});
-        setTimeout(function(){
-            setT(flash,{transition:'opacity '+dur+'ms ease',opacity:'0'});
-            if(cb)setTimeout(cb,dur);
-        },30);
-    }
-
-    /* ── PROGRESS BAR ── */
-    var totalDur=4500;
-    var progStart=performance.now();
-    function updateProg(){
-        if(!prog.parentNode)return;
-        var t=Math.min((performance.now()-progStart)/totalDur,1);
-        prog.style.width=(t*100)+'%';
-        if(t<1)requestAnimationFrame(updateProg);
-    }
-    requestAnimationFrame(updateProg);
-
-    /* ══════════════════════════════════════
-       PHASE 1 — SLAM (0ms)
-       AXIO crashes down from top
-       TUNE crashes up from bottom
-       White slash splits them
-    ══════════════════════════════════════ */
-    setT(ISP1,{opacity:'1'});
-    /* AXIO slam in */
-    setTimeout(function(){
-        setT(axio,{transition:'opacity .05s,transform .55s cubic-bezier(.22,1.8,.36,1),text-shadow .5s',opacity:'1',transform:'translateY(0) scaleY(1)'});
-    },80);
-    /* TUNE slam in */
-    setTimeout(function(){
-        setT(tune,{transition:'opacity .05s,transform .55s cubic-bezier(.22,1.8,.36,1)',opacity:'1',transform:'translateY(0) scaleY(1)'});
-    },140);
-    /* Slash expand */
-    setTimeout(function(){
-        setT(slash,{transition:'opacity .15s,transform .5s cubic-bezier(.16,1,.3,1)',opacity:'1',transform:'scaleX(1)'});
-    },300);
-    /* Shockwave flash on impact */
-    setTimeout(function(){flashScreen(0.55,200);},160);
-
-    /* ── Vibrate effect – small nudges ── */
-    setTimeout(function(){
-        var v=0,vi=setInterval(function(){
-            var d=v%2===0?3:-3;
-            setT(axio,{transform:'translateY('+d+'px) scaleY(1)'});
-            setT(tune,{transform:'translateY('+(-d)+'px) scaleY(1)'});
-            v++;if(v>5){clearInterval(vi);setT(axio,{transform:'translateY(0) scaleY(1)'});setT(tune,{transform:'translateY(0) scaleY(1)'});}
-        },55);
-    },300);
-
-    /* ══════════════════════════════════════
-       PHASE 1 → 2 transition (1100ms)
-       Flash white → swap to logo phase
-    ══════════════════════════════════════ */
-    setTimeout(function(){
-        flashScreen(0.9,120,function(){
-            setT(ISP1,{opacity:'0'});
-            setT(ISP2,{opacity:'1'});
-            /* Logo spring in */
-            setT(logo,{transition:'opacity .1s,transform .7s cubic-bezier(.34,1.56,.64,1)',opacity:'1',transform:'scale(1) rotate(0deg)'});
-            /* Rings expand */
-            setTimeout(function(){setT(r1,{transition:'all .6s cubic-bezier(.22,1,.36,1)',transform:'translate(-50%,-50%) scale(1)',opacity:'1'});},150);
-            setTimeout(function(){setT(r2,{transition:'all .7s cubic-bezier(.22,1,.36,1)',transform:'translate(-50%,-50%) scale(1)',opacity:'1'});},250);
-            setTimeout(function(){setT(r3,{transition:'all .8s cubic-bezier(.22,1,.36,1)',transform:'translate(-50%,-50%) scale(1)',opacity:'1'});},350);
-            /* Tagline */
-            setTimeout(function(){
-                setT(tag,{transition:'color .8s ease',color:'rgba(255,255,255,0.55)'});
-            },600);
-            /* Logo slow spin */
-            var angle=0,spinId=setInterval(function(){
-                angle+=0.5;
-                logo.style.transform='scale(1) rotate('+angle+'deg)';
-                if(angle>=720)clearInterval(spinId);
-            },16);
-        });
-    },1100);
-
-    /* ══════════════════════════════════════
-       PHASE 2 → 3 transition (2700ms)
-       Flash → full-screen glitch text
-    ══════════════════════════════════════ */
-    setTimeout(function(){
-        flashScreen(1.0,80,function(){
-            setT(ISP2,{opacity:'0'});
-            setT(ISP3,{opacity:'1'});
-            /* Massive text blasts in */
-            setT(gt,{transition:'opacity .1s,transform .4s cubic-bezier(.22,1.5,.36,1)',opacity:'1',transform:'scale(1)'});
-        });
-    },2700);
-
-    /* Chromatic shudder on glitch text */
-    setTimeout(function(){
-        var sh=0,shid=setInterval(function(){
-            var ox=(Math.random()-.5)*20,oy=(Math.random()-.5)*8;
-            gt.style.textShadow=''+(-ox)+'px '+(-oy)+'px 0 #ff2d55,'+(ox)+'px '+(oy)+'px 0 #00f0ff';
-            sh++;
-            if(sh>12){clearInterval(shid);gt.style.textShadow='';}
-        },50);
-    },2820);
-
-    /* ══════════════════════════════════════
-       FINAL EXIT — Warp zoom out (4000ms)
-    ══════════════════════════════════════ */
-    setTimeout(function(){
-        flashScreen(1.0,60,function(){
-            setT(ISS,{transition:'transform .6s cubic-bezier(.4,0,.2,1),opacity .6s ease,filter .6s ease',
-                transform:'scale(2)',filter:'blur(25px) brightness(3)',opacity:'0'});
-            setTimeout(function(){
-                cancelAnimationFrame(animId);
-                if(ISS.parentNode)ISS.remove();
-            },650);
-        });
-    },4000);
-
+        }, { once: true });
     })();
     </script>
 
@@ -501,7 +337,7 @@
 
         <!-- LEFT: AxioTune Logo -->
         <div class="pch-logo" id="pch-logo-wrap" title="AxioTune" onclick="if(typeof showHome==='function') showHome();" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-            <img src="logo.png?v=4" alt="AxioTune" class="pch-logo-img" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; filter: drop-shadow(0 0 10px rgba(255,255,255,0.7)); flex-shrink: 0;">
+            <img src="logo.png?v=5" alt="AxioTune" class="pch-logo-img" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; filter: drop-shadow(0 0 10px rgba(255,255,255,0.7)); flex-shrink: 0;">
             <div class="axio-word-wrap">
                 <span class="axio-letter">A</span>
                 <span class="axio-letter">X</span>
@@ -611,7 +447,7 @@
     <div id="home-screen" class="screen-view active-screen">
         <!-- AXIØTUNE Holographic Logo -->
         <div id="axiotune-logo" title="AXIØTUNE" style="display: flex; align-items: center; gap: 14px;">
-            <img src="logo.png?v=4" alt="AxioTune" class="home-logo-img" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; filter: drop-shadow(0 0 14px rgba(255,255,255,0.7)); flex-shrink: 0;">
+            <img src="logo.png?v=5" alt="AxioTune" class="home-logo-img" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; filter: drop-shadow(0 0 14px rgba(255,255,255,0.7)); flex-shrink: 0;">
             <div class="axio-word-wrap">
                 <span class="axio-letter">A</span>
                 <span class="axio-letter">X</span>
@@ -1595,8 +1431,8 @@
     </div>
     <div id="queue-backdrop"></div>
 
-    <script src="kawarp.js?v=250"></script>
-    <script src="app_v3.js?v=250"></script>
+    <script src="kawarp.js?v=252"></script>
+    <script src="app_v3.js?v=252"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
