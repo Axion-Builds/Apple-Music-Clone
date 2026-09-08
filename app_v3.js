@@ -6926,3 +6926,93 @@ document.addEventListener('DOMContentLoaded', async () => {
         else valText.textContent = 'High';
     }
 })();
+
+// ═══════════════════════════════════════════════════════════════════
+// AXIØTUNE LUXURY FOOTER ENGINE & INTERACTIVE CONTROLS
+// ═══════════════════════════════════════════════════════════════════
+window.scrollHomeToTop = function() {
+    const homeScreen = document.getElementById('home-screen');
+    if (homeScreen) {
+        homeScreen.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+window.scrollToHomeSection = function(sectionId) {
+    const el = document.getElementById(sectionId);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+        window.scrollHomeToTop();
+    }
+};
+
+window.openPartyModal = function() {
+    const modal = document.getElementById('listen-together-modal');
+    if (modal) {
+        modal.classList.remove('hidden-modal');
+        if (window.PartyEngine && typeof window.PartyEngine.updateModalUI === 'function') {
+            window.PartyEngine.updateModalUI();
+        }
+    }
+};
+
+window.playSurpriseTrack = function() {
+    const surprisePool = [
+        { id: '4NRXx6U8ABQ', title: 'Blinding Lights', artist: 'The Weeknd' },
+        { id: 'kJQP7kiw5Fk', title: 'Despacito', artist: 'Luis Fonsi, Daddy Yankee' },
+        { id: 'BddP6PYo2gs', title: 'Kesariya', artist: 'Arijit Singh, Pritam' },
+        { id: 'JGwWNGJdvx8', title: 'Shape of You', artist: 'Ed Sheeran' },
+        { id: 'k7sgqqcV5VS', title: 'Softly', artist: 'Karan Aujla' },
+        { id: '3tmd-ClpJxA', title: 'Starboy', artist: 'The Weeknd, Daft Punk' },
+        { id: 'yJh1MZL2Fvt', title: 'Brown Munde', artist: 'AP Dhillon, Gurinder Gill' },
+        { id: 'hT_nvWreIhg', title: 'Counting Stars', artist: 'OneRepublic' },
+        { id: '60ItHLz5WEA', title: 'Faded', artist: 'Alan Walker' },
+        { id: 'fRh_vgS2dFE', title: 'Sorry', artist: 'Justin Bieber' }
+    ];
+    const pick = surprisePool[Math.floor(Math.random() * surprisePool.length)];
+    if (typeof showToast === 'function') {
+        showToast(`🎲 Discovery: Playing "${pick.title}" ✨`);
+    }
+    const songObj = {
+        title: pick.title,
+        artist: pick.artist,
+        cover: `https://i.ytimg.com/vi/${pick.id}/hqdefault.jpg`,
+        id: pick.id,
+        videoId: pick.id
+    };
+    if (typeof window.playSong === 'function') {
+        window.playSong(pick.id, JSON.stringify(songObj));
+    }
+};
+
+// Footer Audio EQ Spectrum Animation Hook
+(function() {
+    const updateFooterEq = () => {
+        const eqWrap = document.getElementById('footer-live-eq');
+        const eqLabel = document.getElementById('footer-eq-label');
+        if (!eqWrap) return;
+        
+        if (typeof audioPlayer !== 'undefined' && !audioPlayer.paused && !audioPlayer.ended) {
+            eqWrap.classList.add('is-playing');
+            const songTitle = document.getElementById('track-title')?.textContent?.trim();
+            if (eqLabel && songTitle && songTitle !== 'AxioTune') {
+                eqLabel.textContent = `Streaming: ${songTitle.length > 22 ? songTitle.slice(0, 22) + '...' : songTitle}`;
+            } else if (eqLabel) {
+                eqLabel.textContent = 'Audio Engine: 320kbps Active';
+            }
+        } else {
+            eqWrap.classList.remove('is-playing');
+            if (eqLabel) {
+                eqLabel.textContent = 'Audio Engine: Ready';
+            }
+        }
+    };
+
+    if (typeof audioPlayer !== 'undefined') {
+        audioPlayer.addEventListener('play', updateFooterEq);
+        audioPlayer.addEventListener('pause', updateFooterEq);
+        audioPlayer.addEventListener('ended', updateFooterEq);
+    }
+    document.addEventListener('DOMContentLoaded', updateFooterEq);
+})();
