@@ -1267,35 +1267,34 @@ function onPlayerStateChange(event) {
                 return ytThumb.replace('ab67616d0000b273', 'ab67616d00001e02');
             }
 
-            if (ytThumb.includes('img.youtube.com/vi/') || ytThumb.includes('i.ytimg.com/vi/')) {
-                return ytThumb.replace('/hqdefault.jpg', '/maxresdefault.jpg')
-                              .replace('/mqdefault.jpg', '/maxresdefault.jpg')
-                              .replace('/sddefault.jpg', '/maxresdefault.jpg');
-            }
             return ytThumb;
         }
 
         function getCoverUrl(query, ytThumb, vid, isPlayerScreen = false) {
             let thumb = resolveYtThumb(ytThumb);
             
-            if (!thumb && vid) {
-                thumb = `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`;
+            // For player screen: route through /api/cover to fetch ultra-HD 1400x1400 Apple Music/iTunes artwork with disk caching!
+            if (isPlayerScreen) {
+                const params = new URLSearchParams();
+                if (query) params.set('q', query);
+                if (thumb && thumb.startsWith('http')) params.set('yt_thumb', thumb);
+                if (vid) params.set('vid', vid);
+                return `/api/cover?${params.toString()}`;
             }
-            
+
             if (thumb && thumb.startsWith('http')) {
-                return thumb; // Fast direct CDN HD loading
+                return thumb; // Fast direct CDN loading
             }
 
             if (vid) {
-                return `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`;
+                return `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
             }
             
-            const params = new URLSearchParams();
-            if (query) params.set('q', query);
-            if (thumb && thumb.startsWith('http')) params.set('yt_thumb', thumb);
-            if (vid) params.set('vid', vid);
+            if (query) {
+                return `/api/cover?q=${encodeURIComponent(query)}`;
+            }
             
-            return `/api/cover?${params.toString()}`;
+            return 'default_cover.jpg';
         }
 
         function getEntryCoverUrl(entry) {
@@ -1305,37 +1304,29 @@ function onPlayerStateChange(event) {
             let thumb = resolveYtThumb(entry.cover) || resolveYtThumb(entry.ytThumb) || '';
             const videoId = entry.videoId || entry.id;
             if (!thumb && videoId) {
-                thumb = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+                thumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
             }
             return getCoverUrl(query, thumb, videoId);
         }
 
         document.addEventListener('error', (e) => {
             const img = e.target;
-            if (img.tagName !== 'IMG' || img.dataset.fallbackDone === '1') return;
+            if (img.tagName !== 'IMG' || img.dataset.fallbackDone === '2') return;
             
-            // Smart HD Fallback Step-Down: maxresdefault -> hq720 -> sddefault -> hqdefault
-            if (img.src.includes('/maxresdefault.jpg')) {
-                img.src = img.src.replace('/maxresdefault.jpg', '/hq720.jpg');
-                return;
-            }
-            if (img.src.includes('/hq720.jpg')) {
-                img.src = img.src.replace('/hq720.jpg', '/sddefault.jpg');
-                return;
-            }
-            if (img.src.includes('/sddefault.jpg')) {
-                img.src = img.src.replace('/sddefault.jpg', '/hqdefault.jpg');
+            // Smart HD Fallback Step-Down: maxresdefault / hq720 / sddefault -> hqdefault (always exists)
+            if (img.src.includes('/maxresdefault.jpg') || img.src.includes('/hq720.jpg') || img.src.includes('/sddefault.jpg')) {
+                img.src = img.src.replace(/\/maxresdefault\.jpg|\/hq720\.jpg|\/sddefault\.jpg/g, '/hqdefault.jpg');
                 return;
             }
             
             const q = img.dataset.query || img.closest('[data-query]')?.getAttribute('data-query');
-            if (q) {
+            if (q && img.dataset.fallbackDone !== '1') {
                 img.dataset.fallbackDone = '1';
-                img.src = getCoverUrl(q, '');
+                img.src = getCoverUrl(q, '', '', true);
                 return;
             }
             if (!img.src.includes('default_cover.jpg')) {
-                img.dataset.fallbackDone = '1';
+                img.dataset.fallbackDone = '2';
                 img.src = 'default_cover.jpg';
             }
         }, true);
@@ -2159,14 +2150,15 @@ function onPlayerStateChange(event) {
             if (pauseIcon) pauseIcon.style.display = playing ? 'block' : 'none';
         }
 
-        async function populateQueue(videoId, append = false) {
+        async function populateQueue(videoId, append = false, currentTitle = '', currentArtist = '') {
+            if (!videoId && !currentTitle) return;
             if (!append) {
                 queueRenderLimit = 10;
                 // Instantly update queue with the playing song to prevent stale queue bugs
                 queueList = [{
                     videoId: currentVideoId || videoId,
-                    title: currentSongMeta ? currentSongMeta.title : 'Unknown',
-                    artist: currentSongMeta ? currentSongMeta.artist : 'Unknown',
+                    title: currentTitle || (currentSongMeta ? currentSongMeta.title : 'Unknown'),
+                    artist: currentArtist || (currentSongMeta ? currentSongMeta.artist : 'Unknown'),
                     cover: currentSongMeta ? currentSongMeta.cover : ''
                 }];
                 currentQueueIndex = 0;
@@ -2174,17 +2166,29 @@ function onPlayerStateChange(event) {
             }
             
             try {
-                const res = await fetch(`/api/recommendations?videoId=${encodeURIComponent(videoId)}`);
+                const title = currentTitle || currentSongMeta?.title || '';
+                const artist = currentArtist || currentSongMeta?.artist || '';
+                const params = new URLSearchParams();
+                if (videoId) params.set('videoId', videoId);
+                if (title) params.set('title', title);
+                if (artist) params.set('artist', artist);
+
+                const res = await fetch(`/api/recommendations?${params.toString()}`);
                 const data = await res.json();
-                if(data.status === 'success' && data.recommendations && data.recommendations.length > 0) {
-                    const existingIds = new Set(queueList.map(s => s.videoId));
+                if (data.status === 'success' && data.recommendations && data.recommendations.length > 0) {
+                    const existingIds = new Set(queueList.map(s => s.videoId).filter(Boolean));
+                    let addedAny = false;
                     data.recommendations.forEach(s => {
-                        if (!existingIds.has(s.videoId)) {
+                        if (s.videoId && !existingIds.has(s.videoId)) {
+                            existingIds.add(s.videoId);
                             queueList.push(s);
+                            addedAny = true;
                         }
                     });
-                    renderQueue();
-                    prefetchNextSong(); // Start prefetching the next song for zero latency
+                    if (addedAny) {
+                        renderQueue();
+                        prefetchNextSong(); // Start prefetching the next song for zero latency
+                    }
                 }
             } catch(e) { console.error('Failed to populate queue:', e); }
         }
@@ -2824,7 +2828,7 @@ function onPlayerStateChange(event) {
             fetchHdCoverForQueueSong(song.title, song.artist, song.videoId, rawYtThumb);
 
             // 4. Asynchronously fetch recommendations for infinite radio / next track queueing
-            populateQueue(song.videoId, true);
+            populateQueue(song.videoId, true, song.title, song.artist);
 
             // 5. Asynchronously fetch & render lyrics
             fetchLyricsForQueueSong(song.title, song.artist, song.videoId);
@@ -3051,7 +3055,7 @@ function onPlayerStateChange(event) {
                 prevBtn.disabled = false;
                 
                 // Populate recommendations for infinite radio
-                populateQueue(songData.videoId || songData.id, true);
+                populateQueue(songData.videoId || songData.id, true, songData.title, songData.uploader);
 
                 // Quality badge
                 if (streamData.quality) {
@@ -3084,7 +3088,7 @@ function onPlayerStateChange(event) {
                     if (fallbackVid) {
                         audioPlayer.src = fallbackVid;
                         audioPlayer.play().catch(err => console.warn("IFrame play failed:", err));
-                        populateQueue(fallbackVid, true);
+                        populateQueue(fallbackVid, true, fallbackTitle, fallbackArtist);
                     }
                     
                     showToast("Ã°Å¸Å½Âµ Playing via YouTube Official Player");
@@ -3950,21 +3954,24 @@ function onPlayerStateChange(event) {
 
             // 3. Curated Popular Fallback Artists if user hasn't followed or played many artists yet
             const curatedArtists = [
-                { name: 'Arijit Singh', cover: 'https://i.scdn.co/image/ab6761610000e5eb0261696c5df3be99da6ed3f3', browseId: 'UCbZkz0y_p3c2Qc_Z5pL0z2Q' },
-                { name: 'Karan Aujla', cover: 'https://i.scdn.co/image/ab6761610000e5eb9bb2586684803714dfbf056e', browseId: 'UC6yQp10-f1-6h5Z2w55f52g' },
-                { name: 'Diljit Dosanjh', cover: 'https://i.scdn.co/image/ab6761610000e5eb4f4c8038c11e74a81093bf78', browseId: 'UC2wK5zM6m7z9z5pL0z2Q' },
-                { name: 'Seedhe Maut', cover: 'https://i.scdn.co/image/ab6761610000e5ebb775796df3f24bf7c5cae5c8', browseId: 'UC3eM8p4n32Z9z5pL0z2Q' },
-                { name: 'Talwiinder', cover: 'https://i.scdn.co/image/ab6761610000e5eb4d7a8d5dbad4e7102e2b9c7b', browseId: 'UC4tZ9w2z5pL0z2Q8z9w2z' },
-                { name: 'AP Dhillon', cover: 'https://i.scdn.co/image/ab6761610000e5ebff2d2508ebaa7d488e0b25e7', browseId: 'UC5aZ9w2z5pL0z2Q8z9w2z' },
-                { name: 'Shreya Ghoshal', cover: 'https://i.scdn.co/image/ab6761610000e5eb1d248b610c1c876b39d1b092', browseId: 'UC6sZ9w2z5pL0z2Q8z9w2z' },
-                { name: 'The Weeknd', cover: 'https://i.scdn.co/image/ab6761610000e5eb214f3cf1cbe7139c1e26ffbb', browseId: 'UC7wZ9w2z5pL0z2Q8z9w2z' },
-                { name: 'Travis Scott', cover: 'https://i.scdn.co/image/ab6761610000e5ebe707b87e3f65e0321c0094d2', browseId: 'UC8wZ9w2z5pL0z2Q8z9w2z' },
-                { name: 'Taylor Swift', cover: 'https://i.scdn.co/image/ab6761610000e5eb859e4c14fa59296c8649e0e4', browseId: 'UC9wZ9w2z5pL0z2Q8z9w2z' }
+                { name: 'Arijit Singh', cover: 'https://lh3.googleusercontent.com/W_yOqnKSDYyeVOY_AsXhuAtb6rW3vCL3GtJ9DA1GxWOrJfyeSOqzvTv_TkFHijdkVPXWutASBlRFPg=w540-h540-p-l90-rj', browseId: 'UCDxKh1gFWeYsqePvgVzmPoQ' },
+                { name: 'Karan Aujla', cover: 'https://lh3.googleusercontent.com/k7sgqqcV5VScaMZtTmS8W_tfouLVBpgyJII0epYE2Vjw1-zzhGgUCV51aHxZn6cmZKKJgUfNlIVpZg=w540-h540-p-l90-rj', browseId: 'UCSmK5WX5U4gdtebWjoL81og' },
+                { name: 'Diljit Dosanjh', cover: 'https://yt3.googleusercontent.com/7EYXXMXY594V8y4sZT2aawmdKgDAGTu5jNm9C-HpR3jY9cZJ0NMxS__nZKBdWZ1PUpJPjc2BAA=w540-h540-p-l90-rj', browseId: 'UCJ2m-WpROlZCiZZID9r7NSQ' },
+                { name: 'Seedhe Maut', cover: 'https://yt3.googleusercontent.com/DUcKt_1YaJ_48_T_hlxWg285BGKkTfwNdzKRV82G-gHZVerUQ8FD8Dl2hkqHLUirrJDnG4C3RA=w540-h540-p-l90-rj', browseId: 'UCL0-89BZ7NWvJfmwDunDJ-A' },
+                { name: 'Talwiinder', cover: 'https://yt3.googleusercontent.com/0De49y6rapW7TKzBDdTt3U9HnYywH07Aor86krePXqqBEt4ZmLKOY93D54Qr8werS27mhfUWpEI=w540-h540-p-l90-rj', browseId: 'UCz8Qz331jq9EhY0a1iw67wQ' },
+                { name: 'AP Dhillon', cover: 'https://lh3.googleusercontent.com/yJh1MZL2FvtJz3YeDAUhTRpfdUSwdotWw8XmB_An-4coKiVG4pDpUGRAPV7ooqmzBP4HAWrtjPyAfI4=w540-h540-p-l90-rj', browseId: 'UCQmNiXx378nooDuZPA2fTAg' },
+                { name: 'Shreya Ghoshal', cover: 'https://yt3.ggpht.com/PgINZNe0qVxgMSXKG5vF82bNN4WCC12zgWsz9I7OLs4CLF9Cn0Vxq7Xc1ToupnzXrCv0nKfe3VM=w540-h540-p-l90-rj', browseId: 'UCrC-7fsdTCYeaRBpwA6j-Eg' },
+                { name: 'The Weeknd', cover: 'https://lh3.googleusercontent.com/U-SAmNOu4TynE818gLCfKsuHZ0U5YNEtO9mrjSI9WCCKERs98LzrCal5kajBBTQNwdcisoB2Bn-pHp4=w540-h540-p-l90-rj', browseId: 'UClYV6hHlupm_S_ObS1W-DYw' },
+                { name: 'Travis Scott', cover: 'https://yt3.googleusercontent.com/r9k_FpAswxhQnl_cudiaT2ocWFccR6SzEFXgZ9a12iR5eDPSILlIL2EQewyQ-yYSt1JFyH1pqnoBXxs=w540-h540-p-l90-rj', browseId: 'UCf_gP4AMRSgAfyzbkeS9k4g' },
+                { name: 'Taylor Swift', cover: 'https://yt3.googleusercontent.com/RCpTA6EXJQyjVFDosWOKa2SMmqkua_lA9mHPDWWciLwgqpZLz-k8rXWRF_367trrQ7up9BUwCbk6kRk=w540-h540-p-l90-rj', browseId: 'UCPC0L1d253x-KuMNwa05TpA' }
             ];
 
             curatedArtists.forEach(ca => {
                 if (!artistMap[ca.name]) {
                     artistMap[ca.name] = { name: ca.name, cover: ca.cover, count: 0, browseId: ca.browseId, isFollowed: false };
+                } else if (!artistMap[ca.name].cover || artistMap[ca.name].cover.includes('scdn.co')) {
+                    artistMap[ca.name].cover = ca.cover;
+                    if (!artistMap[ca.name].browseId) artistMap[ca.name].browseId = ca.browseId;
                 }
             });
 
@@ -3978,9 +3985,10 @@ function onPlayerStateChange(event) {
                 card.className = 'artist-circle-card';
                 card.style.animation = `slideUpFadeIn 0.4s ease forwards`;
                 card.style.animationDelay = `${idx * 0.04}s`;
+                const fallbackArtistThumb = `/api/cover?q=${encodeURIComponent(artist.name + ' artist')}`;
                 card.innerHTML = `
                     <div class="artist-avatar-wrap">
-                        <img src="${coverUrl}" alt="${artist.name}" loading="lazy" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\' fill=\\'%23555\\'><circle cx=\\'60\\' cy=\\'60\\' r=\\'60\\' fill=\\'%23222\\'/><text x=\\'50%\\' y=\\'55%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23fff\\' font-size=\\'36\\'>🎙️</text></svg>'">
+                        <img src="${coverUrl}" alt="${artist.name}" loading="lazy" onerror="if(this.src!=='${fallbackArtistThumb}'){this.src='${fallbackArtistThumb}';}else{this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\' fill=\\'%23555\\'><circle cx=\\'60\\' cy=\\'60\\' r=\\'60\\' fill=\\'%23222\\'/><text x=\\'50%\\' y=\\'55%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23fff\\' font-size=\\'36\\'>🎙️</text></svg>';}">
                     </div>
                     <div class="artist-name-label" title="${artist.name}">${artist.name}</div>
                     <div class="artist-sub-label">${artist.isFollowed ? '★ Followed' : 'Artist'}</div>
@@ -4953,7 +4961,7 @@ function onPlayerStateChange(event) {
 
             // NOW PLAYING CARD
             const nowVid = nowSong.id || nowSong.videoId || '';
-            const nowFb = nowVid ? `https://i.ytimg.com/vi/${nowVid}/maxresdefault.jpg` : 'default_cover.jpg';
+            const nowFb = nowVid ? `https://i.ytimg.com/vi/${nowVid}/hqdefault.jpg` : 'default_cover.jpg';
             const playerScreenCover = document.getElementById('cover-art')?.src;
             const nowThumb = (playerScreenCover && playerScreenCover.startsWith('http') && !playerScreenCover.includes('default_cover.jpg'))
                 ? playerScreenCover
@@ -4963,7 +4971,7 @@ function onPlayerStateChange(event) {
             nowCard.style.setProperty('--card-index', 0);
             nowCard.innerHTML = `
                 <div class="q-card-now-ring">
-                    <img src="${nowThumb}" class="q-card-now-art" onerror="this.onerror=null; this.src='${nowFb}';">
+                    <img src="${nowThumb}" class="q-card-now-art" onerror="if(this.src!=='${nowFb}'){this.src='${nowFb}';}else{this.onerror=null;this.src='default_cover.jpg';}">
                     <div class="q-card-sheen"></div>
                     <div class="q-card-now-badge">
                         <div class="q-eq"><span></span><span></span><span></span><span></span></div>
@@ -4999,7 +5007,7 @@ function onPlayerStateChange(event) {
                 const pos = idx - currentQueueIndex;
                 const isNext = pos === 1;
                 const songVid = song.id || song.videoId || '';
-                const songFb = songVid ? `https://i.ytimg.com/vi/${songVid}/maxresdefault.jpg` : 'default_cover.jpg';
+                const songFb = songVid ? `https://i.ytimg.com/vi/${songVid}/hqdefault.jpg` : 'default_cover.jpg';
                 const thumb = getCoverUrl(`${song.title} ${song.artist}`, song.cover || '', songVid);
                 const numLabel = pos < 10 ? '0' + pos : pos;
                 const card = document.createElement('div');
@@ -5010,7 +5018,7 @@ function onPlayerStateChange(event) {
 
                 card.innerHTML = `
                     <div class="q-card-art-wrap">
-                        <img src="${thumb}" class="q-card-art" onerror="this.onerror=null; this.src='${songFb}';">
+                        <img src="${thumb}" class="q-card-art" onerror="if(this.src!=='${songFb}'){this.src='${songFb}';}else{this.onerror=null;this.src='default_cover.jpg';}">
                         <div class="q-card-play-overlay">
                             <div class="q-card-play-icon"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
                         </div>

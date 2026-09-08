@@ -1262,7 +1262,7 @@
 
     <!-- Mini Player Pill -->
     <div id="mini-player" class="hidden-mini">
-        <img id="mini-cover" src="default_cover.jpg" alt="Mini Cover" >
+        <img id="mini-cover" src="default_cover.jpg" alt="Mini Cover" onerror="this.onerror=null; this.src='default_cover.jpg';">
         <div id="mini-info">
             <div id="mini-title">AxioTune</div>
             <div id="mini-artist">Ready to stream</div>
@@ -1432,7 +1432,7 @@
     <div id="queue-backdrop"></div>
 
     <script src="kawarp.js?v=252"></script>
-    <script src="app_v3.js?v=252"></script>
+    <script src="app_v3.js?v=253"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

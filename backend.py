@@ -10,6 +10,13 @@ import time
 import hashlib
 import re
 from ytmusicapi import YTMusic
+try:
+    from ytmusicapi.navigation import nav, TAB_CONTENT
+    from ytmusicapi.parsers.watch import parse_watch_playlist
+except ImportError:
+    nav = None
+    TAB_CONTENT = None
+    parse_watch_playlist = None
 from pydantic import BaseModel
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -167,9 +174,10 @@ async def get_cover(q: str = "", yt_thumb: str = "", vid: str = ""):
     """
     Fetches album artwork proxied through our server with disk caching.
     1. Checks disk cache first.
-    2. Tries iTunes API (best quality, never expires, no CORS) and caches result.
-    3. Falls back to proxying YouTube thumbnail (highest quality available) and caches result.
-    4. Falls back to default_cover.jpg
+    2. Tries iTunes API (best quality 1400x1400 square artwork, never expires, no CORS) and caches result.
+    3. Tries original YouTube/Google CDN thumbnail if passed and active.
+    4. Falls back to direct YouTube thumbnail resolutions (hqdefault is guaranteed to exist).
+    5. Guaranteed fallback to default_cover.jpg (always 200 OK, never broken image).
     """
     cache_key = ""
     if q:
@@ -179,9 +187,11 @@ async def get_cover(q: str = "", yt_thumb: str = "", vid: str = ""):
     elif yt_thumb:
         cache_key = hashlib.md5(f"thumb_{yt_thumb}".encode('utf-8')).hexdigest()
 
+    default_cover_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_cover.jpg")
+
     if cache_key:
         cache_path = os.path.join(COVER_CACHE_DIR, f"{cache_key}.jpg")
-        if os.path.exists(cache_path):
+        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
             return FileResponse(cache_path, media_type="image/jpeg",
                                 headers={"Cache-Control": "public, max-age=31536000"})
 
@@ -191,70 +201,76 @@ async def get_cover(q: str = "", yt_thumb: str = "", vid: str = ""):
     # Add User-Agent to prevent 403 Forbidden from iTunes and Google APIs
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
-    async with httpx.AsyncClient(timeout=3.0, headers=headers) as client:
-        # First try to use the iTunes API if q is provided (best quality square artwork)
+    async with httpx.AsyncClient(timeout=4.0, headers=headers) as client:
+        # First try to use the iTunes API if q is provided (best quality 1400x1400 artwork)
         if q:
             term = clean_cover_search_term(q)
             if term:
-                try:
-                    r = await client.get(
-                        "https://itunes.apple.com/search",
-                        params={"term": term, "entity": "song", "limit": 1}
-                    )
-                    if r.status_code == 200:
-                        data = r.json()
-                        if data.get("results"):
-                            art_url = data["results"][0]["artworkUrl100"].replace("100x100bb", "1400x1400bb")
-                            img_r = await client.get(art_url)
-                            if img_r.status_code == 200:
-                                if cache_key:
-                                    with open(cache_path, "wb") as f:
-                                        f.write(img_r.content)
-                                return Response(content=img_r.content, media_type="image/jpeg",
-                                                headers={"Cache-Control": "public, max-age=31536000"})
-                except Exception:
-                    pass
+                for entity in ["song", "album"]:
+                    try:
+                        r = await client.get(
+                            "https://itunes.apple.com/search",
+                            params={"term": term, "entity": entity, "limit": 1}
+                        )
+                        if r.status_code == 200:
+                            data = r.json()
+                            if data.get("results") and data["results"][0].get("artworkUrl100"):
+                                art_url = data["results"][0]["artworkUrl100"].replace("100x100bb", "1400x1400bb")
+                                img_r = await client.get(art_url)
+                                if img_r.status_code == 200 and len(img_r.content) > 2000:
+                                    if cache_key:
+                                        with open(cache_path, "wb") as f:
+                                            f.write(img_r.content)
+                                    return Response(content=img_r.content, media_type="image/jpeg",
+                                                    headers={"Cache-Control": "public, max-age=31536000"})
+                    except Exception:
+                        pass
 
-        # If iTunes API lookup failed or q was empty, fallback to downloading YouTube thumbnail
-        yt_urls = []
-        target_vid = extract_yt_video_id(yt_thumb) if yt_thumb and is_valid_yt_thumb(yt_thumb) else vid
+        # Second try: provided yt_thumb if it's already an active CDN URL
+        if yt_thumb and is_valid_yt_thumb(yt_thumb):
+            try:
+                img_r = await client.get(yt_thumb)
+                if img_r.status_code == 200 and len(img_r.content) > 1000:
+                    if cache_key:
+                        with open(cache_path, "wb") as f:
+                            f.write(img_r.content)
+                    return Response(content=img_r.content, media_type="image/jpeg",
+                                    headers={"Cache-Control": "public, max-age=86400"})
+            except Exception:
+                pass
 
+        # Third try: fallback to YouTube thumbnail resolutions by videoId
+        target_vid = vid or extract_yt_video_id(yt_thumb)
         if target_vid:
-            # Try higher resolution options first, fallback to hqdefault which is always present
-            yt_urls.extend([
+            yt_urls = [
                 f"https://img.youtube.com/vi/{target_vid}/maxresdefault.jpg",
                 f"https://img.youtube.com/vi/{target_vid}/sddefault.jpg",
                 f"https://img.youtube.com/vi/{target_vid}/hqdefault.jpg",
                 f"https://img.youtube.com/vi/{target_vid}/mqdefault.jpg",
                 f"https://img.youtube.com/vi/{target_vid}/default.jpg"
-            ])
-            
-        if yt_thumb and is_valid_yt_thumb(yt_thumb):
-            yt_urls.append(yt_thumb)
+            ]
+            for url in yt_urls:
+                try:
+                    img_r = await client.get(url)
+                    if img_r.status_code == 200:
+                        # Skip 120x90 grey placeholder (~1KB) if maxres/sd are missing
+                        if len(img_r.content) < 2000 and ("maxresdefault" in url or "sddefault" in url):
+                            continue
+                        if cache_key:
+                            with open(cache_path, "wb") as f:
+                                f.write(img_r.content)
+                        return Response(content=img_r.content, media_type="image/jpeg",
+                                        headers={"Cache-Control": "public, max-age=31536000" if q else "public, max-age=86400"})
+                except Exception:
+                    continue
 
-        for url in yt_urls:
-            try:
-                img_r = await client.get(url)
-                if img_r.status_code == 200:
-                    # YouTube returns a 120x90 grey placeholder (~1KB) if maxres/sd are missing
-                    if len(img_r.content) < 2000 and ("maxresdefault" in url or "sddefault" in url):
-                        continue
-                        
-                    if cache_key:
-                        with open(cache_path, "wb") as f:
-                            f.write(img_r.content)
-                    return Response(content=img_r.content, media_type="image/jpeg",
-                                    headers={"Cache-Control": "public, max-age=31536000" if q else "public, max-age=86400"})
-            except Exception:
-                continue
-
-    # Absolute ultimate fallback to prevent broken images and CORS errors
+    # Absolute ultimate fallback to prevent broken images
+    if os.path.exists(default_cover_path):
+        return FileResponse(default_cover_path, media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=86400"})
     if os.path.exists("default_cover.jpg"):
         return FileResponse("default_cover.jpg", media_type="image/jpeg")
-        
     return Response(status_code=404)
-        
-    return FileResponse("default_cover.jpg")
 
 # Live search suggestions — returns songs, artists, albums mixed
 @app.get("/api/suggest")
@@ -694,45 +710,117 @@ async def get_trending():
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/recommendations")
-async def get_recommendations(videoId: str = ""):
+async def get_recommendations(videoId: str = "", title: str = "", artist: str = ""):
     try:
-        if not videoId:
+        if not videoId and not title and not artist:
             return {"status": "success", "recommendations": []}
             
-        cache_key = f"recs_{videoId}"
+        cache_key = f"recs_{videoId}_{title}_{artist}"
         now = time.time()
         if cache_key in API_CACHE and (now - API_CACHE[cache_key]['time']) < API_CACHE_TTL:
             return API_CACHE[cache_key]['data']
             
-        def fetch_watch_playlist():
-            return ytmusic.get_watch_playlist(videoId=videoId, limit=20)
+        tracks = []
+        
+        # Strategy 1: Direct YouTube Music Radio extraction via RDAMVM
+        # Bypasses the upstream ytmusicapi 'endpoint' KeyError on tab 2
+        if videoId and nav and parse_watch_playlist:
+            def fetch_radio():
+                body = {
+                    'enablePersistentPlaylistPanel': True,
+                    'isAudioOnly': True,
+                    'videoId': videoId,
+                    'playlistId': f'RDAMVM{videoId}'
+                }
+                resp = ytmusic._send_request('next', body)
+                renderer = nav(resp, ['contents', 'singleColumnMusicWatchNextResultsRenderer', 'tabbedRenderer', 'watchNextTabbedResultsRenderer'])
+                panel = nav(renderer, [*TAB_CONTENT, 'musicQueueRenderer', 'content', 'playlistPanelRenderer'], True)
+                if panel and 'contents' in panel:
+                    return parse_watch_playlist(panel['contents'])
+                return []
+            try:
+                tracks = await run_sync(fetch_radio)
+            except Exception as e:
+                print(f"[Recs] RDAMVM fetch failed: {e}")
+                tracks = []
+        
+        # Strategy 2: Standard watch_playlist fallback
+        if len(tracks) <= 1 and videoId:
+            try:
+                def fetch_watch():
+                    return ytmusic.get_watch_playlist(videoId=videoId, limit=25)
+                res = await run_sync(fetch_watch)
+                if res and res.get('tracks'):
+                    tracks = res['tracks']
+            except Exception:
+                pass
+                
+        # Strategy 3: Search similar songs using artist and/or title
+        if len(tracks) <= 1:
+            search_query = ""
+            if artist:
+                search_query = f"{artist} songs"
+            elif title:
+                search_query = title
+            elif videoId:
+                try:
+                    def get_song_info():
+                        s = ytmusic.get_song(videoId)
+                        a = s.get('videoDetails', {}).get('author', '')
+                        t = s.get('videoDetails', {}).get('title', '')
+                        return a, t
+                    a, t = await run_sync(get_song_info)
+                    search_query = f"{a} songs" if a else t
+                except Exception:
+                    search_query = ""
             
-        try:
-            playlist = await run_sync(fetch_watch_playlist)
-            tracks = playlist.get('tracks', [])
-        except Exception:
-            # FALLBACK for ytmusicapi upstream 'endpoint' bug in watch_playlist
-            def fallback_fetch():
-                song = ytmusic.get_song(videoId)
-                artist = song.get('videoDetails', {}).get('author', '')
-                title = song.get('videoDetails', {}).get('title', '')
-                # Search for similar artist songs to build a radio queue
-                search_query = f"{artist} songs" if artist else title
-                return ytmusic.search(query=search_query, filter="songs", limit=20)
-            tracks = await run_sync(fallback_fetch)
+            if search_query:
+                try:
+                    def search_similar():
+                        return ytmusic.search(query=search_query, filter="songs", limit=25)
+                    tracks = await run_sync(search_similar)
+                except Exception as e:
+                    print(f"[Recs] Search fallback failed: {e}")
+
+        # Strategy 4: Fallback to top/trending songs so queue never runs dry
+        if len(tracks) <= 1:
+            try:
+                def fetch_trending():
+                    charts = ytmusic.get_charts(country="IN")
+                    return charts.get('videos', {}).get('items', []) or charts.get('songs', {}).get('items', [])
+                trend_tracks = await run_sync(fetch_trending)
+                if trend_tracks:
+                    tracks = trend_tracks
+            except Exception:
+                pass
         
         recs = []
+        seen_vids = set()
+        if videoId:
+            seen_vids.add(videoId)
+
         for item in tracks:
             vid = item.get('videoId')
-            # Skip the current song itself from recommendations
-            if vid == videoId or not vid:
+            if not vid or vid in seen_vids:
                 continue
-                
-            artist_name = item['artists'][0]['name'] if item.get('artists') else "Unknown"
+            seen_vids.add(vid)
             
-            # Handle differences between watch_playlist ('thumbnail') and search ('thumbnails')
+            artist_name = "Unknown"
+            if item.get('artists') and len(item['artists']) > 0:
+                artist_name = item['artists'][0].get('name', 'Unknown')
+            elif item.get('author'):
+                artist_name = item['author']
+            
             thumb_list = item.get('thumbnails') or item.get('thumbnail') or []
-            thumbnail = thumb_list[-1]['url'] if thumb_list else ""
+            if isinstance(thumb_list, list) and len(thumb_list) > 0:
+                thumbnail = thumb_list[-1].get('url', '')
+            elif isinstance(thumb_list, str):
+                thumbnail = thumb_list
+            else:
+                thumbnail = ""
+                
+            if not thumbnail:
+                thumbnail = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
             
             recs.append({
                 "title": item.get('title', 'Unknown'), 
@@ -745,7 +833,7 @@ async def get_recommendations(videoId: str = ""):
         API_CACHE[cache_key] = {'time': time.time(), 'data': res_data}
         return res_data
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": str(e), "recommendations": []}
 
 @app.get("/api/home")
 async def get_home():
