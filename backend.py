@@ -169,102 +169,142 @@ def extract_yt_video_id(url: str) -> str:
     return ""
 
 
+# Persistent pooled client for lightning-fast cover lookups with keepalive
+_COVER_CLIENT = httpx.AsyncClient(
+    timeout=httpx.Timeout(3.0, connect=2.0),
+    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+    limits=httpx.Limits(max_keepalive_connections=60, max_connections=120)
+)
+_COVER_MEM_CACHE: dict[str, bytes] = {}
+_COVER_MEM_CACHE_MAX = 600
+
+def _cache_cover_bytes(key: str, data: bytes, cache_path: str):
+    if not key or not data or len(data) < 800:
+        return
+    _COVER_MEM_CACHE[key] = data
+    if len(_COVER_MEM_CACHE) > _COVER_MEM_CACHE_MAX:
+        try:
+            del _COVER_MEM_CACHE[next(iter(_COVER_MEM_CACHE))]
+        except Exception:
+            pass
+    try:
+        with open(cache_path, "wb") as f:
+            f.write(data)
+    except Exception:
+        pass
+
 @app.get("/api/cover")
-async def get_cover(q: str = "", yt_thumb: str = "", vid: str = ""):
+async def get_cover(q: str = "", yt_thumb: str = "", vid: str = "", hd: bool = False):
     """
-    Fetches album artwork proxied through our server with disk caching.
-    1. Checks disk cache first.
-    2. Tries iTunes API (best quality 1400x1400 square artwork, never expires, no CORS) and caches result.
-    3. Tries original YouTube/Google CDN thumbnail if passed and active.
-    4. Falls back to direct YouTube thumbnail resolutions (hqdefault is guaranteed to exist).
-    5. Guaranteed fallback to default_cover.jpg (always 200 OK, never broken image).
+    High-performance album artwork proxy with RAM LRU caching and disk cache.
+    1. Checks RAM memory cache (<0.1ms).
+    2. Checks disk cache.
+    3. If vid provided without hd/q requirement: instant hqdefault CDN fetch (<20ms).
+    4. If q provided: unified single iTunes music query for ultra-HD 1400x1400 Apple Music art.
+    5. Fallback to direct YouTube hqdefault thumbnail.
+    6. Ultimate fallback to default_cover.jpg.
     """
     cache_key = ""
     if q:
-        cache_key = hashlib.md5(f"q_{q}".encode('utf-8')).hexdigest()
+        cache_key = hashlib.md5(f"q_{q}_{hd}".encode('utf-8')).hexdigest()
     elif vid:
-        cache_key = hashlib.md5(f"vid_{vid}".encode('utf-8')).hexdigest()
+        cache_key = hashlib.md5(f"vid_{vid}_{hd}".encode('utf-8')).hexdigest()
     elif yt_thumb:
         cache_key = hashlib.md5(f"thumb_{yt_thumb}".encode('utf-8')).hexdigest()
 
     default_cover_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default_cover.jpg")
 
-    if cache_key:
-        cache_path = os.path.join(COVER_CACHE_DIR, f"{cache_key}.jpg")
-        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
-            return FileResponse(cache_path, media_type="image/jpeg",
-                                headers={"Cache-Control": "public, max-age=31536000"})
+    # 1. RAM Memory Cache Hit (0ms latency)
+    if cache_key and cache_key in _COVER_MEM_CACHE:
+        return Response(content=_COVER_MEM_CACHE[cache_key], media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=31536000"})
 
+    # 2. Disk Cache Hit
+    cache_path = os.path.join(COVER_CACHE_DIR, f"{cache_key}.jpg") if cache_key else ""
+    if cache_path and os.path.exists(cache_path) and os.path.getsize(cache_path) > 800:
+        try:
+            with open(cache_path, "rb") as f:
+                data = f.read()
+            _COVER_MEM_CACHE[cache_key] = data
+            return Response(content=data, media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=31536000"})
+        except Exception:
+            pass
+
+    # 3. Clean inputs
     if yt_thumb and not is_valid_yt_thumb(yt_thumb):
         yt_thumb = ""
 
-    # Add User-Agent to prevent 403 Forbidden from iTunes and Google APIs
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    
-    async with httpx.AsyncClient(timeout=4.0, headers=headers) as client:
-        # First try to use the iTunes API if q is provided (best quality 1400x1400 artwork)
-        if q:
-            term = clean_cover_search_term(q)
-            if term:
-                for entity in ["song", "album"]:
-                    try:
-                        r = await client.get(
-                            "https://itunes.apple.com/search",
-                            params={"term": term, "entity": entity, "limit": 1}
-                        )
-                        if r.status_code == 200:
-                            data = r.json()
-                            if data.get("results") and data["results"][0].get("artworkUrl100"):
-                                art_url = data["results"][0]["artworkUrl100"].replace("100x100bb", "1400x1400bb")
-                                img_r = await client.get(art_url)
-                                if img_r.status_code == 200 and len(img_r.content) > 2000:
-                                    if cache_key:
-                                        with open(cache_path, "wb") as f:
-                                            f.write(img_r.content)
-                                    return Response(content=img_r.content, media_type="image/jpeg",
-                                                    headers={"Cache-Control": "public, max-age=31536000"})
-                    except Exception:
-                        pass
+    # 4. Fast Path for card thumbnails (vid provided, no heavy iTunes search needed)
+    target_vid = vid or extract_yt_video_id(yt_thumb)
+    if target_vid and not hd and not q:
+        hq_url = f"https://i.ytimg.com/vi/{target_vid}/hqdefault.jpg"
+        try:
+            img_r = await _COVER_CLIENT.get(hq_url)
+            if img_r.status_code == 200 and len(img_r.content) > 1000:
+                if cache_key and cache_path:
+                    _cache_cover_bytes(cache_key, img_r.content, cache_path)
+                return Response(content=img_r.content, media_type="image/jpeg",
+                                headers={"Cache-Control": "public, max-age=86400"})
+        except Exception:
+            pass
 
-        # Second try: provided yt_thumb if it's already an active CDN URL
-        if yt_thumb and is_valid_yt_thumb(yt_thumb):
+    # 5. iTunes Apple Music 1400x1400 lookup when query is present
+    if q:
+        term = clean_cover_search_term(q)
+        if term:
             try:
-                img_r = await client.get(yt_thumb)
-                if img_r.status_code == 200 and len(img_r.content) > 1000:
-                    if cache_key:
-                        with open(cache_path, "wb") as f:
-                            f.write(img_r.content)
-                    return Response(content=img_r.content, media_type="image/jpeg",
-                                    headers={"Cache-Control": "public, max-age=86400"})
+                r = await _COVER_CLIENT.get(
+                    "https://itunes.apple.com/search",
+                    params={"term": term, "media": "music", "entity": "song", "limit": 1},
+                    timeout=2.5
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("results") and data["results"][0].get("artworkUrl100"):
+                        art_url = data["results"][0]["artworkUrl100"].replace("100x100bb", "1400x1400bb")
+                        img_r = await _COVER_CLIENT.get(art_url, timeout=3.0)
+                        if img_r.status_code == 200 and len(img_r.content) > 2000:
+                            if cache_key and cache_path:
+                                _cache_cover_bytes(cache_key, img_r.content, cache_path)
+                            return Response(content=img_r.content, media_type="image/jpeg",
+                                            headers={"Cache-Control": "public, max-age=31536000"})
             except Exception:
                 pass
 
-        # Third try: fallback to YouTube thumbnail resolutions by videoId
-        target_vid = vid or extract_yt_video_id(yt_thumb)
-        if target_vid:
-            yt_urls = [
-                f"https://img.youtube.com/vi/{target_vid}/maxresdefault.jpg",
-                f"https://img.youtube.com/vi/{target_vid}/sddefault.jpg",
-                f"https://img.youtube.com/vi/{target_vid}/hqdefault.jpg",
-                f"https://img.youtube.com/vi/{target_vid}/mqdefault.jpg",
-                f"https://img.youtube.com/vi/{target_vid}/default.jpg"
-            ]
-            for url in yt_urls:
-                try:
-                    img_r = await client.get(url)
-                    if img_r.status_code == 200:
-                        # Skip 120x90 grey placeholder (~1KB) if maxres/sd are missing
-                        if len(img_r.content) < 2000 and ("maxresdefault" in url or "sddefault" in url):
-                            continue
-                        if cache_key:
-                            with open(cache_path, "wb") as f:
-                                f.write(img_r.content)
-                        return Response(content=img_r.content, media_type="image/jpeg",
-                                        headers={"Cache-Control": "public, max-age=31536000" if q else "public, max-age=86400"})
-                except Exception:
-                    continue
+    # 6. Active CDN YouTube/Google thumbnail proxy
+    if yt_thumb and is_valid_yt_thumb(yt_thumb):
+        try:
+            img_r = await _COVER_CLIENT.get(yt_thumb, timeout=2.5)
+            if img_r.status_code == 200 and len(img_r.content) > 1000:
+                if cache_key and cache_path:
+                    _cache_cover_bytes(cache_key, img_r.content, cache_path)
+                return Response(content=img_r.content, media_type="image/jpeg",
+                                headers={"Cache-Control": "public, max-age=86400"})
+        except Exception:
+            pass
 
-    # Absolute ultimate fallback to prevent broken images
+    # 7. Fallback to YouTube thumbnail by videoId (hqdefault guaranteed)
+    if target_vid:
+        candidate_urls = []
+        if hd:
+            candidate_urls.append(f"https://i.ytimg.com/vi/{target_vid}/maxresdefault.jpg")
+        candidate_urls.append(f"https://i.ytimg.com/vi/{target_vid}/hqdefault.jpg")
+
+        for url in candidate_urls:
+            try:
+                img_r = await _COVER_CLIENT.get(url, timeout=2.0)
+                if img_r.status_code == 200:
+                    if len(img_r.content) < 2000 and "maxresdefault" in url:
+                        continue
+                    if cache_key and cache_path:
+                        _cache_cover_bytes(cache_key, img_r.content, cache_path)
+                    return Response(content=img_r.content, media_type="image/jpeg",
+                                    headers={"Cache-Control": "public, max-age=86400"})
+            except Exception:
+                continue
+
+    # 8. Guaranteed fallback: local default_cover.jpg
     if os.path.exists(default_cover_path):
         return FileResponse(default_cover_path, media_type="image/jpeg",
                             headers={"Cache-Control": "public, max-age=86400"})

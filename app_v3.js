@@ -721,7 +721,8 @@ function onPlayerStateChange(event) {
             const container = document.getElementById('library-tab-content');
             if(!container) return;
             
-            if(followedArtists.length === 0) {
+            const followed = JSON.parse(localStorage.getItem('followedArtists') || '[]');
+            if(followed.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.5;margin-bottom:15px"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
@@ -732,7 +733,7 @@ function onPlayerStateChange(event) {
             }
             
             let html = '<div class="artist-circle-grid">';
-            followedArtists.forEach(artist => {
+            followed.forEach(artist => {
                 html += `
                     <div class="artist-circle-card" onclick="openArtist('${artist.browseId}')">
                         <img src="${artist.thumb}" alt="${artist.name}">
@@ -742,7 +743,7 @@ function onPlayerStateChange(event) {
             });
             html += '</div>';
             container.innerHTML = html;
-        }
+        };
 
         function renderLikedSongs() {
             const container = document.getElementById('liked-songs-list');
@@ -1253,14 +1254,15 @@ function onPlayerStateChange(event) {
         // This proxy: 1) fetches iTunes artwork, 2) falls back to YT thumb
         // No CORS, no expiry, works from any device on the network!
         // ============================================================
-        function resolveYtThumb(ytThumb, size = 'large') {
+        function resolveYtThumb(ytThumb, size = 'card') {
             if (!ytThumb || typeof ytThumb !== 'string') return '';
             if (ytThumb.includes('/api/cover')) return ''; // Avoid double proxying
             
-            // Upgrade Spotify & Google/YouTube Music thumbnail sizes to 800x800 HD
+            // Optimize Google/YouTube Music thumbnail sizes: 540x540 for cards (loads 4x faster, retina crisp)
             if (ytThumb.includes('googleusercontent.com') || ytThumb.includes('ggpht.com') || ytThumb.includes('scdn.co')) {
+                const targetDim = size === 'large' ? 'w800-h800' : 'w540-h540';
                 if (ytThumb.includes('=')) {
-                    return ytThumb.split('=')[0] + '=w800-h800-l90-rj';
+                    return ytThumb.split('=')[0] + `=${targetDim}-l90-rj`;
                 }
                 return ytThumb.replace('ab67616d0000b273', 'ab67616d00001e02');
             }
@@ -1269,27 +1271,25 @@ function onPlayerStateChange(event) {
         }
 
         function getCoverUrl(query, ytThumb, vid, isPlayerScreen = false) {
-            let thumb = resolveYtThumb(ytThumb);
+            let thumb = resolveYtThumb(ytThumb, isPlayerScreen ? 'large' : 'card');
             
-            // For player screen: route through /api/cover to fetch ultra-HD 1400x1400 Apple Music/iTunes artwork with disk caching!
+            // For player screen: route through /api/cover to fetch ultra-HD 1400x1400 Apple Music/iTunes artwork with caching
             if (isPlayerScreen) {
                 const params = new URLSearchParams();
                 if (query) params.set('q', query);
                 if (thumb && thumb.startsWith('http')) params.set('yt_thumb', thumb);
                 if (vid) params.set('vid', vid);
+                params.set('hd', 'true');
                 return `/api/cover?${params.toString()}`;
             }
 
+            // Direct CDN loading for snappy UI
             if (thumb && thumb.startsWith('http')) {
-                return thumb; // Fast direct CDN loading
+                return thumb;
             }
 
             if (vid) {
                 return `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
-            }
-            
-            if (query) {
-                return `/api/cover?q=${encodeURIComponent(query)}`;
             }
             
             return 'default_cover.jpg';
@@ -1299,7 +1299,7 @@ function onPlayerStateChange(event) {
             const title = entry.title || '';
             const artist = entry.artist || '';
             const query = `${title} ${artist}`.trim();
-            let thumb = resolveYtThumb(entry.cover) || resolveYtThumb(entry.ytThumb) || '';
+            let thumb = resolveYtThumb(entry.cover || entry.ytThumb, 'card');
             const videoId = entry.videoId || entry.id;
             if (!thumb && videoId) {
                 thumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
@@ -1311,18 +1311,22 @@ function onPlayerStateChange(event) {
             const img = e.target;
             if (img.tagName !== 'IMG' || img.dataset.fallbackDone === '2') return;
             
-            // Smart HD Fallback Step-Down: maxresdefault / hq720 / sddefault -> hqdefault (always exists)
+            // 1. Smart YouTube HD Step-Down: maxresdefault / hq720 / sddefault -> hqdefault (100% exists)
             if (img.src.includes('/maxresdefault.jpg') || img.src.includes('/hq720.jpg') || img.src.includes('/sddefault.jpg')) {
                 img.src = img.src.replace(/\/maxresdefault\.jpg|\/hq720\.jpg|\/sddefault\.jpg/g, '/hqdefault.jpg');
                 return;
             }
             
+            // 2. Only allow HD Apple Music lookup for the actual player cover screen (#cover-art)
+            const isPlayerArt = img.id === 'cover-art' || img.id === 'player-bg-art' || img.classList.contains('player-cover-target');
             const q = img.dataset.query || img.closest('[data-query]')?.getAttribute('data-query');
-            if (q && img.dataset.fallbackDone !== '1') {
+            if (isPlayerArt && q && img.dataset.fallbackDone !== '1') {
                 img.dataset.fallbackDone = '1';
                 img.src = getCoverUrl(q, '', '', true);
                 return;
             }
+
+            // 3. Guaranteed instant fallback for all cards (0 network latency)
             if (!img.src.includes('default_cover.jpg')) {
                 img.dataset.fallbackDone = '2';
                 img.src = 'default_cover.jpg';
@@ -3806,17 +3810,17 @@ function onPlayerStateChange(event) {
                 if (!rawThumb && videoId) {
                     rawThumb = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
                 }
-                // Use backend cover proxy for reliable images
+                // Use direct CDN / hqdefault for instant loading
                 const thumb = getCoverUrl(`${title} ${subtitle}`, rawThumb, videoId);
                 const query = `${title} ${subtitle}`;
-                const fallbackThumb = `/api/cover?vid=${videoId || ''}&q=${encodeURIComponent(query)}`;
+                const fallbackThumb = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'default_cover.jpg';
                 
                 const card = document.createElement('div');
                 card.className = 'dense-card';
                 card.style.animationDelay = `${idx * 0.03}s`;
                 card.setAttribute('data-query', query);
                 card.innerHTML = `
-                    <img src="${thumb}" alt="" class="dense-card-cover" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='${fallbackThumb}'">
+                    <img src="${thumb}" alt="" class="dense-card-cover" loading="lazy" decoding="async" onerror="if(this.src!=='${fallbackThumb}'){this.src='${fallbackThumb}';}else{this.onerror=null;this.src='default_cover.jpg';}">
                     <div class="dense-card-info">
                         <div class="dense-card-title">${title}</div>
                         <div class="dense-card-artist">${subtitle}</div>
@@ -3844,7 +3848,7 @@ function onPlayerStateChange(event) {
             setupLazyCovers(container);
         }
 
-        // Ã°Å¸Å½Â¨ ART GRID Ã¢â‚¬â€ Pure album art squares for "Jump Back In"
+        // 🎨 ART GRID — Pure album art squares for "Jump Back In"
         function populateArtGrid(containerId, entries) {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -3864,9 +3868,9 @@ function onPlayerStateChange(event) {
                     const subtitle = item.artist || item.uploader || '';
                     const videoId = item.videoId || item.id;
                     let rawThumb = item.cover || item.thumbnail || item.thumb || '';
-                    if (!rawThumb && videoId) rawThumb = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                    if (!rawThumb && videoId) rawThumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
                     const thumb = getCoverUrl(`${title} ${subtitle}`, rawThumb, videoId);
-                    const fallbackThumb = `/api/cover?vid=${videoId || ''}&q=${encodeURIComponent(title + ' ' + subtitle)}`;
+                    const fallbackThumb = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'default_cover.jpg';
                     const safeTitle = title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
                     const safeArtist = subtitle.replace(/</g,'&lt;').replace(/>/g,'&gt;');
     
@@ -3875,7 +3879,7 @@ function onPlayerStateChange(event) {
                     card.style.animationDelay = `${idx * 0.035}s`;
                     card.innerHTML = `
                         <img src="${thumb}" alt="${safeTitle}" loading="lazy" decoding="async"
-                             onerror="this.onerror=null;this.src='${fallbackThumb}'">
+                             onerror="if(this.src!=='${fallbackThumb}'){this.src='${fallbackThumb}';}else{this.onerror=null;this.src='default_cover.jpg';}">
                         <div class="art-grid-overlay">
                             <div class="art-grid-play-btn">
                                 <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -3946,9 +3950,9 @@ function onPlayerStateChange(event) {
                 const subtitle = item.artist || item.uploader || 'Artist';
                 const videoId = item.videoId || item.id;
                 let rawThumb = item.cover || item.thumbnail || item.thumb || '';
-                if (!rawThumb && videoId) rawThumb = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                if (!rawThumb && videoId) rawThumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
                 const thumb = getCoverUrl(`${title} ${subtitle}`, rawThumb, videoId);
-                const fallbackThumb = `/api/cover?vid=${videoId || ''}&q=${encodeURIComponent(title + ' ' + subtitle)}`;
+                const fallbackThumb = videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'default_cover.jpg';
                 const safeTitle = title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 const safeArtist = subtitle.replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -3958,7 +3962,7 @@ function onPlayerStateChange(event) {
                 card.innerHTML = `
                     <div class="cinematic-poster-wrap">
                         <img src="${thumb}" class="cinematic-card-img" alt="${safeTitle}" loading="lazy" decoding="async"
-                             onerror="this.onerror=null;this.src='${fallbackThumb}'">
+                             onerror="if(this.src!=='${fallbackThumb}'){this.src='${fallbackThumb}';}else{this.onerror=null;this.src='default_cover.jpg';}">
                         <div class="cinematic-card-play">
                             <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                         </div>
@@ -4062,15 +4066,14 @@ function onPlayerStateChange(event) {
             container.innerHTML = '';
 
             artists.slice(0, 18).forEach((artist, idx) => {
-                const coverUrl = artist.cover ? (artist.cover.startsWith('http') ? artist.cover : getCoverUrl(artist.name, artist.cover)) : getCoverUrl(artist.name, '');
+                const coverUrl = artist.cover ? (artist.cover.startsWith('http') ? artist.cover : resolveYtThumb(artist.cover, 'card')) : 'default_cover.jpg';
                 const card = document.createElement('div');
                 card.className = 'artist-circle-card';
                 card.style.animation = `slideUpFadeIn 0.4s ease forwards`;
                 card.style.animationDelay = `${idx * 0.04}s`;
-                const fallbackArtistThumb = `/api/cover?q=${encodeURIComponent(artist.name + ' artist')}`;
                 card.innerHTML = `
                     <div class="artist-avatar-wrap">
-                        <img src="${coverUrl}" alt="${artist.name}" loading="lazy" onerror="if(this.src!=='${fallbackArtistThumb}'){this.src='${fallbackArtistThumb}';}else{this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\' fill=\\'%23555\\'><circle cx=\\'60\\' cy=\\'60\\' r=\\'60\\' fill=\\'%23222\\'/><text x=\\'50%\\' y=\\'55%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23fff\\' font-size=\\'36\\'>🎙️</text></svg>';}">
+                        <img src="${coverUrl}" alt="${artist.name}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'120\\' height=\\'120\\' fill=\\'%23555\\'><circle cx=\\'60\\' cy=\\'60\\' r=\\'60\\' fill=\\'%23222\\'/><text x=\\'50%\\' y=\\'55%\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23fff\\' font-size=\\'36\\'>🎙️</text></svg>';">
                     </div>
                     <div class="artist-name-label" title="${artist.name}">${artist.name}</div>
                     <div class="artist-sub-label">${artist.isFollowed ? '★ Followed' : 'Artist'}</div>
@@ -4963,12 +4966,6 @@ function onPlayerStateChange(event) {
             }
         }
         window.showRemotePlaylistPage = showRemotePlaylistPage;
-
-        function playTrackFromList(songJsonStr) {
-            if (window.playTrackFromList) {
-                window.playTrackFromList(songJsonStr);
-            }
-        }
 
         window.playSong = function(videoId, songJsonStr, element) {
             try {
@@ -6092,33 +6089,6 @@ function updateMediaSession(title, artist, artworkUrl) {
     }
 }
 
-window.loadLibraryArtists = function() {
-    const container = document.getElementById('library-tab-content');
-    if(!container) return;
-    
-    if(followedArtists.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.5;margin-bottom:15px"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                <p>You haven't followed any artists yet.</p>
-            </div>
-        `;
-        return;
-    }
-    
-    let html = '<div class="artist-circle-grid">';
-    followedArtists.forEach(artist => {
-        html += `
-            <div class="artist-circle-card" onclick="openArtist('${artist.browseId}')">
-                <img src="${artist.thumb}" alt="${artist.name}">
-                <div class="artist-name">${artist.name}</div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-};
-
 let followedArtists = JSON.parse(localStorage.getItem('followedArtists') || '[]');
 
 window.getFollowButtonHtml = function(browseId, name, thumb) {
@@ -6749,18 +6719,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => PartyEngine.init(), 1000);
 });
 
-
-
-window.toggleDownloadMenu = function(e) {
-    const menu = document.getElementById('download-dropdown-menu');
-    if (menu.classList.contains('hidden-dropdown')) {
-        menu.classList.remove('hidden-dropdown');
-    } else {
-        menu.classList.add('hidden-dropdown');
-    }
-    e.stopPropagation();
-};
-
 window.downloadAppFor = function(os) {
     const githubReleasesLink = 'https://github.com/adarshshukla/apple-music-clone/releases';
     window.open(githubReleasesLink, '_blank');
@@ -6968,20 +6926,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         else valText.textContent = 'High';
     }
 })();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
